@@ -1,8 +1,8 @@
 //
 //  main.m
-//  HIBitcoinJKitDemo
+//  HIBitcoinKitDemo
 //
-//  Created by Bazyli Zygan on 26.07.2013.
+//  Created by Bazyli Zygan on 12.07.2013.
 //  Copyright (c) 2013 Hive Developers. All rights reserved.
 //
 

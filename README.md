@@ -1,35 +1,13 @@
-BitcoinKit.framework
+BitcoinJKit.framework
 ===================
 
-BitcoinKit.framework allows you to access and use bitcoin wallets in your applications. It uses both bitcoind (BitcoinKit.framework) AND BitcoinJ (BitcoinJKit.framework).
-
-About BitcoinKit.framework
---------------------------
-
-The BitcoinKit.framework uses original bitcoind sources to deliver functionality needed for managing bitcoin wallets. If your Mac application need the access to bitcoin network, this is what you need.
+BitcoinJKit.framework allows you to access and use bitcoinj wallets in your applications. It uses BitcoinJ.
 
 About BitcoinJKit.framework
 ---------------------------
 
-The BitcoinJKit.framework uses bitcoinj sources to deliver bitcoin functionality with SPV. Your application will need to request for java support because - up till now - BitcoinJKit.framework requires external JVM. That may change in a near future.
+The BitcoinJKit.framework uses bitcoinj sources to deliver bitcoin functionality with SPV. Your application will need to request for java support because - up till now - BitcoinJKit.framework requires external JVM. That may change in the future.
 
-Build Instructions for BitcoinKit.framework
--------------------------------------------
-
-
-In order to be able to compile this stuff you need to use homebrew and do the following:
-
-	brew install boost miniupnpc openssl berkeley-db4 kyoto-cabinet
-
-&
-
-	brew link openssl --force
-
-And remember to fetch bitcoind sources!
-
-	git submodule update --init --recursive
-
-Now you're ready to go!
 
 Build Instructions for BitcoinJKit.framework
 -------------------------------------------
@@ -47,7 +25,7 @@ Time to compile!
 How to use
 ----------
 
-BitcoinKit.framework & BitcoinJKit.framework share the same API. They deliver a singleton of class HIBitcoinManager. With this object you are able to access bitcoin network and manage your wallet
+BitcoinJKit.framework delivers a singleton of class HIBitcoinManager. With this object you are able to access bitcoin network and manage your wallet
 
 First you need to prepare the library for launching.
 
@@ -87,9 +65,9 @@ And more!
 Demo App
 --------
 
-There's a demo application included with the sources. Start it up and check out how to use BitcoinKit.framework && BitcoinJKit.framework!
+There's a demo application included with the sources. Start it up and check out how to use BitcoinJKit.framework!
 
 License
 -------
 
-BitcoinKit.framework & BitcoinJKit.framework are available under the MIT license.
+BitcoinJKit.framework are available under the MIT license.

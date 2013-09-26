@@ -151,7 +151,7 @@
 				LastUpgradeCheck = 0460;
 				ORGANIZATIONNAME = "Hive Developers";
 			};
-			buildConfigurationList = D91FE4E8178EB1F1001B37D8 /* Build configuration list for PBXProject "BitcoinKit" */;
+			buildConfigurationList = D91FE4E8178EB1F1001B37D8 /* Build configuration list for PBXProject "BitcoinJKit" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = English;
 			hasScannedForEncodings = 0;
@@ -329,7 +329,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		D91FE4E8178EB1F1001B37D8 /* Build configuration list for PBXProject "BitcoinKit" */ = {
+		D91FE4E8178EB1F1001B37D8 /* Build configuration list for PBXProject "BitcoinJKit" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				D91FE501178EB1F1001B37D8 /* Debug */,

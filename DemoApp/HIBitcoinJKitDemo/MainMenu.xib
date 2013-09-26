@@ -14,10 +14,10 @@
         <customObject id="-3" userLabel="Application"/>
         <menu title="AMainMenu" systemMenu="main" id="29">
             <items>
-                <menuItem title="HIBitcoinKitDemo" id="56">
-                    <menu key="submenu" title="HIBitcoinKitDemo" systemMenu="apple" id="57">
+                <menuItem title="HIBitcoinJKitDemo" id="56">
+                    <menu key="submenu" title="HIBitcoinJKitDemo" systemMenu="apple" id="57">
                         <items>
-                            <menuItem title="About HIBitcoinKitDemo" id="58">
+                            <menuItem title="About HIBitcoinJKitDemo" id="58">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="orderFrontStandardAboutPanel:" target="-2" id="142"/>
@@ -36,7 +36,7 @@
                             <menuItem isSeparatorItem="YES" id="144">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES"/>
                             </menuItem>
-                            <menuItem title="Hide HIBitcoinKitDemo" keyEquivalent="h" id="134">
+                            <menuItem title="Hide HIBitcoinJKitDemo" keyEquivalent="h" id="134">
                                 <connections>
                                     <action selector="hide:" target="-1" id="367"/>
                                 </connections>
@@ -55,7 +55,7 @@
                             <menuItem isSeparatorItem="YES" id="149">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES"/>
                             </menuItem>
-                            <menuItem title="Quit HIBitcoinKitDemo" keyEquivalent="q" id="136">
+                            <menuItem title="Quit HIBitcoinJKitDemo" keyEquivalent="q" id="136">
                                 <connections>
                                     <action selector="terminate:" target="-3" id="449"/>
                                 </connections>
@@ -637,7 +637,7 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Help" systemMenu="help" id="491">
                         <items>
-                            <menuItem title="HIBitcoinKitDemo Help" keyEquivalent="?" id="492">
+                            <menuItem title="HIBitcoinJKitDemo Help" keyEquivalent="?" id="492">
                                 <connections>
                                     <action selector="showHelp:" target="-1" id="493"/>
                                 </connections>
@@ -647,7 +647,7 @@
                 </menuItem>
             </items>
         </menu>
-        <window title="HIBitcoinKitDemo" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" animationBehavior="default" id="371">
+        <window title="HIBitcoinJKitDemo" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" animationBehavior="default" id="371">
             <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
             <rect key="contentRect" x="335" y="390" width="480" height="494"/>
@@ -865,7 +865,7 @@
                                         <rect key="frame" x="1" y="203" width="421" height="16"/>
                                         <autoresizingMask key="autoresizingMask"/>
                                     </scroller>
-                                    <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" doubleValue="37" id="571">
+                                    <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" doubleValue="1" id="571">
                                         <rect key="frame" x="224" y="17" width="15" height="102"/>
                                         <autoresizingMask key="autoresizingMask"/>
                                     </scroller>
