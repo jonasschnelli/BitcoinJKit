@@ -15,12 +15,15 @@ import com.google.bitcoin.store.UnreadableWalletException;
 import com.google.bitcoin.utils.BriefLogFormatter;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
+import org.spongycastle.util.encoders.Base64;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.net.InetAddress;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -29,7 +32,6 @@ public class BitcoinManager implements PeerEventListener {
 	private Wallet wallet;
 	private String dataDirectory;
     private String appName = "bitcoinkit";
-
     private PeerGroup peerGroup;
     private BlockStore blockStore;
     private File walletFile;
@@ -72,10 +74,26 @@ public class BitcoinManager implements PeerEventListener {
 		ECKey ecKey = wallet.getKeys().get(0);
 		return ecKey.toAddress(networkParams).toString();
 	}
+
+    public String getAllWalletAddressesJSON()
+    {
+        StringBuffer conns = new StringBuffer();
+        conns.append("[");
+        for(ECKey key: wallet.getKeys())
+        {
+            conns.append("\"" + key.toAddress(networkParams).toString() + "\",");
+        }
+        if(conns.substring(conns.length() -1).equals(","))
+        {
+            conns.deleteCharAt(conns.length() -1);
+        }
+        conns.append("]");
+        return conns.toString();
+    }
 	
 	public BigInteger getBalance()
 	{
-		return wallet.getBalance();
+		return wallet.getBalance(Wallet.BalanceType.ESTIMATED);
 	}
     
     public String getBalanceString()
@@ -95,12 +113,8 @@ public class BitcoinManager implements PeerEventListener {
 				StringBuffer conns = new StringBuffer();
 				int connCount = 0;
 				
-				
 				if (tx.getConfidence().getConfidenceType() == TransactionConfidence.ConfidenceType.PENDING)
 					confidence = "pending";
-				
-//				if (tx.isCoinBase())
-//					tType = "generated";
 				
 				conns.append("[");
 				
@@ -208,7 +222,18 @@ public class BitcoinManager implements PeerEventListener {
 		
 		return txs.toString();
 	}
-	
+
+    public String addKey()
+    {
+        boolean couldCreateKey = wallet.addKey(new ECKey());
+        if(couldCreateKey)
+        {
+            ECKey ecKey = wallet.getKeys().get(wallet.getKeys().size()-1);
+            return ecKey.toAddress(networkParams).toString();
+        }
+        return null;
+    }
+
 	public void sendCoins(String amount, final String sendToAddressString)
 	{
 		  try {
@@ -244,7 +269,28 @@ public class BitcoinManager implements PeerEventListener {
             return false;
         }
     }
+
+    /**
+     * Returns the whole wallet file as base64 string to store into OS keychain, etc.
+     */
+    public String getWalletFileBase64String()
+    {
+        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+        String base64Wallet = null;
+        try {
+            wallet.saveToFileStream(stream);
+            base64Wallet = new String(Base64.encode(stream.toByteArray()), Charset.forName("UTF-8"));
+        } catch (IOException e) {
+            //TODO
+            e.printStackTrace();
+        }
+
+         return base64Wallet;
+    }
 	
+    /**
+     * start the bitcoinj app layer
+     */
 	public void start() throws Exception
 	{
 
@@ -254,29 +300,33 @@ public class BitcoinManager implements PeerEventListener {
         wallet = null;
         walletFile = new File(dataDirectory + "/"+ appName +".wallet");
         try {
-            // Wipe the wallet if the chain file was deleted.
-            if (walletFile.exists() && chainFile.exists())
+            if (walletFile.exists())
+            {
             	wallet = Wallet.loadFromFile(walletFile);
+                if(!chainFile.exists())
+                {
+                    wallet.clearTransactions(0);
+                }
+            }
         } catch (UnreadableWalletException e) {
-//            System.err.println("Couldn't load wallet: " + e);
-            // Fall through.
+            // TODO: error case
         }
         if (wallet == null) {
-//            System.out.println("Creating new wallet file.");
+            // if there is no wallet, create one and add a ec key
             wallet = new Wallet(networkParams);
             wallet.addKey(new ECKey());
             wallet.saveToFile(walletFile);
         }
 
         //make wallet autosave
+        //TODO, possibility for base64 keychain save option
         wallet.autosaveToFile(walletFile, 1, TimeUnit.SECONDS, null);
         
 
         // Fetch the first key in the wallet (should be the only key).
         ECKey key = wallet.getKeys().iterator().next();
+        
         // Load the block chain, if there is one stored locally. If it's going to be freshly created, checkpoint it.
-//        System.out.println("Reading block store from disk");
-
         boolean chainExistedAlready = chainFile.exists();
         blockStore = new SPVBlockStore(networkParams, chainFile);
         if (!chainExistedAlready) {
@@ -289,14 +339,30 @@ public class BitcoinManager implements PeerEventListener {
      
         BlockChain chain = new BlockChain(networkParams, wallet, blockStore);
         // Connect to the localhost node. One minute timeout since we won't try any other peers
-//        System.out.println("Connecting ...");
+
         peerGroup = new PeerGroup(networkParams, chain);
-//        peerGroup.setUserAgent("BitcoinKit", "1.0");
         if (networkParams == RegTestParams.get()) {
             peerGroup.addAddress(InetAddress.getLocalHost());
         } else {
             peerGroup.addPeerDiscovery(new DnsDiscovery(networkParams));
         }
+        peerGroup.addEventListener(new AbstractPeerEventListener() {
+            @Override
+            public void onPeerConnected(Peer peer, int peerCount) {
+                super.onPeerConnected(peer, peerCount);
+                onPeerCountChanged(peerCount);
+                
+                // inform app about the expected height
+                onSynchronizationUpdate(-1, -1, peerGroup.getMostCommonChainHeight());
+            }
+            
+            @Override
+            public void onPeerDisconnected(Peer peer, int peerCount) {
+                super.onPeerDisconnected(peer, peerCount);
+                onPeerCountChanged(peerCount);
+            }
+        });
+            
         peerGroup.addWallet(wallet);
         
 
@@ -305,38 +371,38 @@ public class BitcoinManager implements PeerEventListener {
             @Override
             public void onCoinsReceived(Wallet w, Transaction tx, BigInteger prevBalance, BigInteger newBalance) {
                 assert !newBalance.equals(BigInteger.ZERO);
+                
+                // TODO: check if the isPending thing is required
                 if (!tx.isPending()) return;
-                // It was broadcast, but we can't really verify it's valid until it appears in a block.
-                BigInteger value = tx.getValueSentToMe(w);
-//                System.out.println("Received pending tx for " + Utils.bitcoinValueToFriendlyString(value) +
-//                        ": " + tx);
+                
                 onTransactionChanged(tx.getHashAsString());
-                tx.getConfidence().addEventListener(new TransactionConfidence.Listener() {
-                    public void onConfidenceChanged(final Transaction tx2, TransactionConfidence.Listener.ChangeReason reason) {
-                        if (tx2.getConfidence().getConfidenceType() == TransactionConfidence.ConfidenceType.BUILDING) {
-                            // Coins were confirmed (appeared in a block).
-                            tx2.getConfidence().removeEventListener(this);
-//                            System.out.println("We get " + tx2);
-                           
-                        } else {
-//                            System.out.println(String.format("Confidence of %s changed, is now: %s",
-//                                    tx2.getHashAsString(), tx2.getConfidence().toString()));
-                        }
-                        onTransactionChanged(tx2.getHashAsString());
-                    }
-                });
             }
-        });   
+        });
+        
+        // inform the app over the current chains height; if there is a chain and already loaded blocks
+        if(chain != null)
+        {
+            StoredBlock chainHead = chain.getChainHead();
+            if(chainHead != null)
+            {
+                int height = chainHead.getHeight();
+                onSynchronizationUpdate(0.0, height, -1);
+            }
+        }
         
         peerGroup.startAndWait();
         peerGroup.start();
 
+        // inform about the balance
         onBalanceChanged();
 
         peerGroup.startBlockChainDownload(this);
 
 	}
 	
+    /**
+     * stop the bitcoinj app layer
+     */
 	public void stop()
 	{
 		try {
@@ -350,6 +416,9 @@ public class BitcoinManager implements PeerEventListener {
         }
 	}
 	
+    /**
+     * TODO
+     */
 	public void walletExport(String path)
 	{
 		
@@ -363,12 +432,9 @@ public class BitcoinManager implements PeerEventListener {
 	
     public native void onTransactionSuccess(String txid);
     
-	public native void onSynchronizationUpdate(int percent);
+	public native void onSynchronizationUpdate(double progress, long blockCount, long blockHeight);
 	
-	public void onPeerCountChange(int peersConnected)
-	{
-//		System.out.println("Peers " + peersConnected);
-	}
+	public native void onPeerCountChanged(int peersConnected);
 	
 	public native void onBalanceChanged();
 	
@@ -377,29 +443,36 @@ public class BitcoinManager implements PeerEventListener {
 	{
 		int downloadedSoFar = blocksToDownload - blocksLeft;
 		if (blocksToDownload == 0)
-			onSynchronizationUpdate(10000);
+        {
+			onSynchronizationUpdate(1.0, downloadedSoFar, blocksToDownload);
+        }
 		else
-			onSynchronizationUpdate(10000*downloadedSoFar / blocksToDownload);
+        {
+            // report after every 100 block
+            if(blocksLeft % 100 == 0)
+            {
+                double progress = (double)downloadedSoFar / (double)blocksToDownload;
+                onSynchronizationUpdate(progress, downloadedSoFar, blocksToDownload);
+            }
+        }
 	}
 	
 	public void onChainDownloadStarted(Peer peer, int blocksLeft)
 	{
 		blocksToDownload = blocksLeft;
 		if (blocksToDownload == 0)
-			onSynchronizationUpdate(10000);
+			onSynchronizationUpdate(1.0, blocksToDownload, -1);
 		else
-			onSynchronizationUpdate(0);
+			onSynchronizationUpdate(0.0, -1, blocksToDownload);
 	}
 	
 	public void onPeerConnected(Peer peer, int peerCount)
 	{
-		onPeerCountChange(peerCount);
 	}
 	
 	
 	public void onPeerDisconnected(Peer peer, int peerCount)
 	{
-		onPeerCountChange(peerCount);
 	}
 	
 	public Message onPreMessageReceived(Peer peer, Message m)
