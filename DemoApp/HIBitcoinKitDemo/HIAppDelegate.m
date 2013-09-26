@@ -71,11 +71,7 @@
 {
     if (object == [HIBitcoinManager defaultManager])
     {
-        if ([keyPath compare:@"connections"] == NSOrderedSame)
-        {
-            _connectionsLabel.stringValue = [NSString stringWithFormat:@"%lu", [HIBitcoinManager defaultManager].connections];
-        }
-        else if ([keyPath compare:@"balance"] == NSOrderedSame)
+        if ([keyPath compare:@"balance"] == NSOrderedSame)
         {
             _balanceLabel.stringValue = [NSString stringWithFormat:@"%.4f ฿", (CGFloat)[HIBitcoinManager defaultManager].balance / 100000000.0];
         }
@@ -106,7 +102,7 @@
                 [_progressIndicator setIndeterminate:YES];
             }
             
-            if ([HIBitcoinManager defaultManager].syncProgress == 10000)
+            if ([HIBitcoinManager defaultManager].syncProgress == 1.0)
             {
                 [_progressIndicator stopAnimation:self];
                 _stateLabel.stringValue = @"Synchronized";
