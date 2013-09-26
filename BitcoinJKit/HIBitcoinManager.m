@@ -3,36 +3,13 @@
 //  BitcoinKit
 //
 //  Created by Bazyli Zygan on 26.07.2013.
+//  Extended by Jonas Schnelli 2013
+//
 //  Copyright (c) 2013 Hive Developers. All rights reserved.
 //
 
 #import "HIBitcoinManager.h"
-//#import "HIJavaBridge.h"
 #import <JavaVM/jni.h>
-//#import "jni.h"
-
-//#if (defined __MINGW32__) || (defined _MSC_VER)
-//#  define EXPORT __declspec(dllexport)
-//#else
-//#  define EXPORT __attribute__ ((visibility("default"))) \
-//__attribute__ ((used))
-//#endif
-//
-//#if (! defined __x86_64__) && ((defined __MINGW32__) || (defined _MSC_VER))
-//#  define SYMBOL(x) binary_boot_jar_##x
-//#else
-//#  define SYMBOL(x) _binary_boot_jar_##x
-//#endif
-//
-//extern const uint8_t SYMBOL(start)[];
-//extern const uint8_t SYMBOL(end)[];
-//
-//EXPORT const uint8_t*
-//bootJar(unsigned* size)
-//{
-//    *size = (unsigned int)(SYMBOL(end) - SYMBOL(start));
-//    return SYMBOL(start);
-//}
 
 @interface HIBitcoinManager ()
 {
@@ -51,7 +28,8 @@
 
 - (jclass)jClassForClass:(NSString *)class;
 - (void)onBalanceChanged;
-- (void)onSynchronizationChanged:(int)percent;
+- (void)onSynchronizationChanged:(double)progress blockCount:(long)blockCount totalBlocks:(long)totalBlocks;
+- (void)onPeerCountChanged:(int)peerCount;
 - (void)onTransactionChanged:(NSString *)txid;
 - (void)onTransactionSucceeded:(NSString *)txid;
 - (void)onTransactionFailed;
@@ -67,11 +45,20 @@ JNIEXPORT void JNICALL onBalanceChanged
     [pool release];
 }
 
-JNIEXPORT void JNICALL onSynchronizationUpdate
-(JNIEnv *env, jobject thisobject, jint percent)
+
+JNIEXPORT void JNICALL onPeerCountChanged
+(JNIEnv *env, jobject thisobject, jint peerCount)
 {
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
-    [[HIBitcoinManager defaultManager] onSynchronizationChanged:(int)percent];
+    [[HIBitcoinManager defaultManager] onPeerCountChanged:(int)peerCount];
+    [pool release];
+}
+
+JNIEXPORT void JNICALL onSynchronizationUpdate
+(JNIEnv *env, jobject thisobject, jdouble progress, jlong blockCount, jlong totalBlocks)
+{
+    NSAutoreleasePool *pool = [NSAutoreleasePool new];
+    [[HIBitcoinManager defaultManager] onSynchronizationChanged:(double)progress blockCount:blockCount totalBlocks:totalBlocks];
     [pool release];
 }
 
@@ -103,7 +90,6 @@ JNIEXPORT void JNICALL onTransactionSucceeded
         NSString *bStr = [NSString stringWithUTF8String:txc];
         (*env)->ReleaseStringUTFChars(env, txid, txc);
         [[HIBitcoinManager defaultManager] onTransactionSucceeded:bStr];
-        
     }
     
     [pool release];
@@ -124,7 +110,8 @@ static JNINativeMethod methods[] = {
     {"onTransactionChanged",    "(Ljava/lang/String;)V",                   (void *)&onTransactionChanged},
     {"onTransactionSuccess",    "(Ljava/lang/String;)V",                   (void *)&onTransactionSucceeded},
     {"onTransactionFailed",     "()V",                                     (void *)&onTransactionFailed},
-    {"onSynchronizationUpdate", "(I)V",                                    (void *)&onSynchronizationUpdate}
+    {"onPeerCountChanged",       "(I)V",                                     (void *)&onPeerCountChanged},
+    {"onSynchronizationUpdate", "(DJJ)V",                                    (void *)&onSynchronizationUpdate}
 };
 
 NSString * const kHIBitcoinManagerTransactionChangedNotification = @"kJHIBitcoinManagerTransactionChangedNotification";
@@ -144,9 +131,12 @@ static HIBitcoinManager *_defaultManager = nil;
 @synthesize isRunning = _isRunning;
 @synthesize balance = _balance;
 @synthesize syncProgress = _syncProgress;
+@synthesize peerCount = _peerCount;
 @synthesize testingNetwork = _testingNetwork;
 @synthesize enableMining = _enableMining;
 @synthesize walletAddress;
+@synthesize currentBlockCount=_currentBlockCount;
+@synthesize totalBlocks=_totalBlocks;
 
 + (HIBitcoinManager *)defaultManager
 {
@@ -204,7 +194,7 @@ static HIBitcoinManager *_defaultManager = nil;
         _connections = 0;
         _balance = 0;
         _sending = NO;
-        _syncProgress = 0;
+        _syncProgress = 0.0;
         _testingNetwork = NO;
         _enableMining = NO;
         _isRunning = NO;
@@ -257,22 +247,19 @@ static HIBitcoinManager *_defaultManager = nil;
     
     jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
     
-    if (_testingNetwork)
+    // Find testing network method in the class
+    jmethodID testingM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "setTestingNetwork", "(Z)V");
+    
+    if (testingM == NULL)
+        return;
+    
+    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, testingM, _testingNetwork);
+    if ((*_jniEnv)->ExceptionCheck(_jniEnv))
     {
-        // Find testing network method in the class
-        jmethodID testingM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "setTestingNetwork", "(Z)V");
-        
-        if (testingM == NULL)
-            return;
-        
-        (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, testingM, true);
-        if ((*_jniEnv)->ExceptionCheck(_jniEnv))
-        {
-            (*_jniEnv)->ExceptionDescribe(_jniEnv);
-            (*_jniEnv)->ExceptionClear(_jniEnv);
-        }
-        
+        (*_jniEnv)->ExceptionDescribe(_jniEnv);
+        (*_jniEnv)->ExceptionClear(_jniEnv);
     }
+  
     
     // Now set the folder
     jmethodID setDataDirM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "setDataDirectory", "(Ljava/lang/String;)V");
@@ -314,9 +301,32 @@ static HIBitcoinManager *_defaultManager = nil;
     [self willChangeValueForKey:@"isRunning"];
     _isRunning = YES;
     [self didChangeValueForKey:@"isRunning"];
+    
     [[NSNotificationCenter defaultCenter] postNotificationName:kHIBitcoinManagerStartedNotification object:self];
     [self willChangeValueForKey:@"walletAddress"];
     [self didChangeValueForKey:@"walletAddress"];
+}
+
+- (NSArray *)allWalletAddresses
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    jmethodID allAddressesM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getAllWalletAddressesJSON", "()Ljava/lang/String;");
+    
+    if (allAddressesM)
+    {
+        jstring wa = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, allAddressesM);
+        
+        const char *waStr = (*_jniEnv)->GetStringUTFChars(_jniEnv, wa, NULL);
+        
+        NSString *str = [NSString stringWithUTF8String:waStr];
+        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, wa, waStr);
+        
+        NSArray *addresses = [NSJSONSerialization JSONObjectWithData:[str dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
+        
+        return addresses;
+    }
+    
+    return nil;
 }
 
 - (NSString *)walletAddress
@@ -336,6 +346,45 @@ static HIBitcoinManager *_defaultManager = nil;
         return str;
     }
     
+    return nil;
+}
+
+- (NSString *)base64Wallet
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    jmethodID walletM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getWalletAddress", "()Ljava/lang/String;");
+    
+    if (walletM)
+    {
+        jstring wa = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, walletM);
+        
+        const char *waStr = (*_jniEnv)->GetStringUTFChars(_jniEnv, wa, NULL);
+        
+        NSString *str = [NSString stringWithUTF8String:waStr];
+        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, wa, waStr);
+        
+        return str;
+    }
+    
+    return nil;
+}
+
+- (NSString *)walletFileBase64String
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    jmethodID walletM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getWalletFileBase64String", "()Ljava/lang/String;");
+    
+    if (walletM)
+    {
+        jstring wa = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, walletM);
+        
+        const char *waStr = (*_jniEnv)->GetStringUTFChars(_jniEnv, wa, NULL);
+        
+        NSString *str = [NSString stringWithUTF8String:waStr];
+        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, wa, waStr);
+        
+        return str;
+    }
     
     return nil;
 }
@@ -619,6 +668,31 @@ static HIBitcoinManager *_defaultManager = nil;
     return (NSUInteger)c;
 }
 
+#pragma mark - Key Stack
+
+- (NSString *)addKey
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID addKeyM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "addKey", "()Ljava/lang/String;");
+    
+    if (addKeyM == NULL)
+    return nil;
+    
+    jstring newKeyString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, addKeyM);
+    
+    if (newKeyString)
+    {
+        const char *newKeyStringC = (*_jniEnv)->GetStringUTFChars(_jniEnv, newKeyString, NULL);
+        
+        NSString *newKeyStringNS = [NSString stringWithUTF8String:newKeyStringC];
+        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, newKeyString, newKeyStringC);
+        
+        return newKeyStringNS;
+    }
+    
+    return nil;
+}
 
 #pragma mark - Callbacks
 
@@ -630,11 +704,32 @@ static HIBitcoinManager *_defaultManager = nil;
     });
 }
 
-- (void)onSynchronizationChanged:(int)percent
+- (void)onPeerCountChanged:(int)peerCount
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self willChangeValueForKey:@"peerCount"];
+        _peerCount = (NSUInteger)peerCount;
+        [self didChangeValueForKey:@"peerCount"];
+    });
+}
+
+- (void)onSynchronizationChanged:(double)progress blockCount:(long)blockCount totalBlocks:(long)totalBlocks
 {
     dispatch_async(dispatch_get_main_queue(), ^{
         [self willChangeValueForKey:@"syncProgress"];
-        _syncProgress = (NSUInteger)percent;
+        if(progress >= 0)
+        {
+            _syncProgress = (double)progress;
+        }
+        
+        if(blockCount > 0)
+        {
+            _currentBlockCount = blockCount;
+        }
+        if(totalBlocks > 0)
+        {
+            _totalBlocks = totalBlocks;
+        }
         [self didChangeValueForKey:@"syncProgress"];
     });
 }
