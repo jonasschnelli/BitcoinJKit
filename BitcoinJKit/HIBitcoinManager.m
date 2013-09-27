@@ -34,6 +34,9 @@
 - (void)onTransactionSucceeded:(NSString *)txid;
 - (void)onTransactionFailed;
 - (void)checkBalance:(NSTimer *)timer;
+
+- (uint64_t)balance:(int)type;
+
 @end
 
 
@@ -57,6 +60,8 @@ JNIEXPORT void JNICALL onPeerCountChanged
 JNIEXPORT void JNICALL onSynchronizationUpdate
 (JNIEnv *env, jobject thisobject, jdouble progress, jlong blockCount, jlong totalBlocks)
 {
+    NSLog(@"========== total: %ld", (long)totalBlocks);
+    
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     [[HIBitcoinManager defaultManager] onSynchronizationChanged:(double)progress blockCount:blockCount totalBlocks:totalBlocks];
     [pool release];
@@ -228,7 +233,7 @@ static HIBitcoinManager *_defaultManager = nil;
             _managerObject = (*_jniEnv)->NewObject(_jniEnv, mgrClass, constructorM);
         }
         
-        _balanceChecker = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(checkBalance:) userInfo:nil repeats:YES];
+        //_balanceChecker = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(checkBalance:) userInfo:nil repeats:YES];
     }
     
     return self;
@@ -477,16 +482,16 @@ static HIBitcoinManager *_defaultManager = nil;
     return nil;
 }
 
-- (NSArray *)allTransactions
+- (NSArray *)allTransactions:(int)max
 {
     jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
     // We're ready! Let's start
-    jmethodID tM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getAllTransactions", "()Ljava/lang/String;");
+    jmethodID tM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getAllTransactions", "(I)Ljava/lang/String;");
     
     if (tM == NULL)
         return nil;
     
-    jstring transString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, tM);
+    jstring transString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, tM, (jint)max);
     
     if (transString)
     {
@@ -622,14 +627,24 @@ static HIBitcoinManager *_defaultManager = nil;
 
 - (uint64_t)balance
 {
+    return [self balance:0];
+}
+
+- (uint64_t)balanceUnconfirmed
+{
+    return [self balance:1];
+}
+
+- (uint64_t)balance:(int)type
+{
     jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
     // We're ready! Let's start
-    jmethodID balanceM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getBalanceString", "()Ljava/lang/String;");
+    jmethodID balanceM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getBalanceString", "(I)Ljava/lang/String;");
     
     if (balanceM == NULL)
         return 0;
     
-    jstring balanceString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, balanceM);
+    jstring balanceString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, balanceM, (jint)type);
     
     if (balanceString)
     {
@@ -638,7 +653,6 @@ static HIBitcoinManager *_defaultManager = nil;
         NSString *bStr = [NSString stringWithUTF8String:balanceChars];
         (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, balanceString, balanceChars);
         
-        _lastBalance = [bStr longLongValue];
         return [bStr longLongValue];
     }
     
@@ -647,10 +661,11 @@ static HIBitcoinManager *_defaultManager = nil;
 
 - (void)checkBalance:(NSTimer *)timer
 {
-    uint64_t lastBalance = _lastBalance;
-    if (lastBalance != [self balance])
+    uint64_t currentBalance = [self balance];
+    if (_lastBalance != currentBalance)
     {
         [self onBalanceChanged];
+        _lastBalance = currentBalance;
     }
 }
 

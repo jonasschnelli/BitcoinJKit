@@ -91,15 +91,22 @@ public class BitcoinManager implements PeerEventListener {
         return conns.toString();
     }
 	
-	public BigInteger getBalance()
+	public BigInteger getBalance(int type)
 	{
-		return wallet.getBalance(Wallet.BalanceType.ESTIMATED);
+        if(type == 0)
+        {
+            return wallet.getBalance(Wallet.BalanceType.AVAILABLE);
+        }
+        else
+        {
+            return wallet.getBalance(Wallet.BalanceType.ESTIMATED);
+        }
 	}
     
-    public String getBalanceString()
+    public String getBalanceString(int type)
     {
         if (wallet != null)
-            return getBalance().toString();
+            return getBalance(type).toString();
         
         return null;
     }
@@ -178,16 +185,31 @@ public class BitcoinManager implements PeerEventListener {
 	
 	public int getTransactionCount()
 	{
+        if(wallet == null)
+        {
+            return 0;
+        }
 		return wallet.getTransactionsByTime().size();
 	}
     
-    public String getAllTransactions()
+    public String getAllTransactions(int max)
     {
+        long transactionCount = getTransactionCount();
+        
+        if(max > 0 && transactionCount > max)
+        {
+            // cut transactions
+            return getTransactions(0, max);
+        }
         return getTransactions(0, getTransactionCount());
     }
 	
 	public String getTransaction(String tx)
 	{
+        if(wallet == null)
+        {
+            return null;
+        }
 		Sha256Hash hash = new Sha256Hash(tx);
 		return getJSONFromTransaction(wallet.getTransaction(hash));
 	}
@@ -199,6 +221,10 @@ public class BitcoinManager implements PeerEventListener {
 	
 	public String getTransactions(int from, int count)
 	{
+        if(wallet == null)
+        {
+            return null;
+        }
 		List<Transaction> transactions = wallet.getTransactionsByTime();
 		
 		if (from >= transactions.size())
@@ -238,7 +264,7 @@ public class BitcoinManager implements PeerEventListener {
 	{
 		  try {
 			  BigInteger aToSend = new BigInteger(amount);
-			  aToSend = aToSend.subtract(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE);
+			  //aToSend = aToSend.subtract(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE);
 			  Address sendToAddress = new Address(networkParams, sendToAddressString);
 	          final Wallet.SendResult sendResult = wallet.sendCoins(peerGroup, sendToAddress, aToSend);
 	          Futures.addCallback(sendResult.broadcastComplete, new FutureCallback<Transaction>() {
@@ -390,7 +416,6 @@ public class BitcoinManager implements PeerEventListener {
             }
         }
         
-        peerGroup.startAndWait();
         peerGroup.start();
 
         // inform about the balance
@@ -444,7 +469,7 @@ public class BitcoinManager implements PeerEventListener {
 		int downloadedSoFar = blocksToDownload - blocksLeft;
 		if (blocksToDownload == 0)
         {
-			onSynchronizationUpdate(1.0, downloadedSoFar, blocksToDownload);
+			onSynchronizationUpdate(1.0, downloadedSoFar, -1);
         }
 		else
         {
@@ -452,7 +477,7 @@ public class BitcoinManager implements PeerEventListener {
             if(blocksLeft % 100 == 0)
             {
                 double progress = (double)downloadedSoFar / (double)blocksToDownload;
-                onSynchronizationUpdate(progress, downloadedSoFar, blocksToDownload);
+                onSynchronizationUpdate(progress, downloadedSoFar, -1);
             }
         }
 	}
@@ -463,7 +488,7 @@ public class BitcoinManager implements PeerEventListener {
 		if (blocksToDownload == 0)
 			onSynchronizationUpdate(1.0, blocksToDownload, -1);
 		else
-			onSynchronizationUpdate(0.0, -1, blocksToDownload);
+			onSynchronizationUpdate(0.0, -1, -1);
 	}
 	
 	public void onPeerConnected(Peer peer, int peerCount)

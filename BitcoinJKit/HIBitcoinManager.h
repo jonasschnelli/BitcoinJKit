@@ -31,6 +31,7 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
 @property (nonatomic, readonly) NSUInteger connections;                             //<<< Currently active connections to bitcoin network
 @property (nonatomic, readonly) BOOL isRunning;                                     //<<< Flag indicating if NPBitcoinManager is currently running and connecting with the network
 @property (nonatomic, readonly) uint64_t balance;                                   //<<< Actual balance of the wallet
+@property (nonatomic, readonly) uint64_t balanceUnconfirmed;                        //<<< Actual balance of the wallet
 @property (nonatomic, readonly) double syncProgress;                            //<<< Double value indicating the progress of network sync. Values are from 0.0 to 1.0.
 @property (nonatomic, readonly) long currentBlockCount;                            //<<< Double value indicating the progress of network sync. Values are from 0.0 to 1.0.
 @property (nonatomic, readonly) long totalBlocks;                            //<<< Double value indicating the progress of network sync. Values are from 0.0 to 1.0.
@@ -93,9 +94,11 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
 
 /** Returns an array of definitions of all transactions 
  *
+ * @param max amount of transactions, use 0 for unlimited
+ *
  * @returns Array of all transactions to this wallet
  */
-- (NSArray *)allTransactions;
+- (NSArray *)allTransactions:(int)max;
 
 /** Returns array of transactions from given range
  *
