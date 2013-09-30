@@ -36,6 +36,7 @@ public class BitcoinManager implements PeerEventListener {
     private BlockStore blockStore;
     private File walletFile;
     private int blocksToDownload;
+    private int storedChainHeight;
     
 	public void setTestingNetwork(boolean testing)
 	{
@@ -319,7 +320,8 @@ public class BitcoinManager implements PeerEventListener {
      */
 	public void start() throws Exception
 	{
-
+        storedChainHeight = 0;
+        
         File chainFile = new File(dataDirectory + "/" + appName + ".spvchain");
 
         // Try to read the wallet from storage, create a new one if not possible.
@@ -411,8 +413,8 @@ public class BitcoinManager implements PeerEventListener {
             StoredBlock chainHead = chain.getChainHead();
             if(chainHead != null)
             {
-                int height = chainHead.getHeight();
-                onSynchronizationUpdate(0.0, height, -1);
+                storedChainHeight = chainHead.getHeight();
+                onSynchronizationUpdate(0.0, storedChainHeight, -1);
             }
         }
         
@@ -469,7 +471,7 @@ public class BitcoinManager implements PeerEventListener {
 		int downloadedSoFar = blocksToDownload - blocksLeft;
 		if (blocksToDownload == 0)
         {
-			onSynchronizationUpdate(1.0, downloadedSoFar, -1);
+			onSynchronizationUpdate(1.0, storedChainHeight+downloadedSoFar, -1);
         }
 		else
         {
@@ -477,7 +479,7 @@ public class BitcoinManager implements PeerEventListener {
             if(blocksLeft % 100 == 0)
             {
                 double progress = (double)downloadedSoFar / (double)blocksToDownload;
-                onSynchronizationUpdate(progress, downloadedSoFar, -1);
+                onSynchronizationUpdate(progress, storedChainHeight+downloadedSoFar, -1);
             }
         }
 	}
@@ -486,7 +488,7 @@ public class BitcoinManager implements PeerEventListener {
 	{
 		blocksToDownload = blocksLeft;
 		if (blocksToDownload == 0)
-			onSynchronizationUpdate(1.0, blocksToDownload, -1);
+			onSynchronizationUpdate(1.0, storedChainHeight+blocksToDownload, -1);
 		else
 			onSynchronizationUpdate(0.0, -1, -1);
 	}
