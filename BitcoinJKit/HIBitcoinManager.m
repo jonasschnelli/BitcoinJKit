@@ -785,4 +785,11 @@ static HIBitcoinManager *_defaultManager = nil;
     });
 }
 
+#pragma mark helpers
+- (NSString *)formatNanobtc:(NSInteger)nanoBtc
+{
+    //TODO: nice and configurable
+    return [NSString stringWithFormat:@"%.6g ฿", (double)nanoBtc/100000000];
+}
+
 @end

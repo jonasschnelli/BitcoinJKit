@@ -175,5 +175,14 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  * @returns YES if import was successful. NO - otherwise
  */
 - (BOOL)importWalletFrom:(NSURL *)importURL;
+
+/** Formts nano btc (satoshis) to a nice NSString with the standard BTC unit
+ *
+ * @param NSInteger nanoBTC;
+ *
+ * @returns YES if import was successful. NO - otherwise
+ */
+- (NSString *)formatNanobtc:(NSInteger)nanoBtc;
+
 @end
  
