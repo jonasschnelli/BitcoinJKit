@@ -38,7 +38,7 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
 @property (nonatomic, readonly) NSUInteger peerCount;                            //<<< Integer value indicating how many peers are connected.
 @property (nonatomic, readonly, getter = walletAddress) NSString *walletAddress;    //<<< Returns wallets main address. Creates one if none exists yet
 @property (nonatomic, readonly, getter = allWalletAddresses) NSArray *allWalletAddresses;    //<<< Returns all wallet addresses.
-@property (nonatomic, readonly) NSArray *walletFileBase64String;    //<<< Returns the wallet file as base64 string.
+@property (nonatomic, readonly) NSString *walletFileBase64String;    //<<< Returns the wallet file as base64 string.
 
 @property (nonatomic, readonly, getter = isWalletEncrypted) BOOL isWalletEncrypted; //<<< Returns YES if wallet is encrypted. NO - otherwise
 @property (nonatomic, readonly, getter = isWalletLocked) BOOL isWalletLocked;       //<<< Returns YES if wallet is currently locked. NO - otherwise
