@@ -34,11 +34,14 @@ public class BitcoinManager implements PeerEventListener {
     private String appName = "bitcoinkit";
     private PeerGroup peerGroup;
     private BlockStore blockStore;
+    private BlockChain chain;
     private File walletFile;
     private int blocksToDownload;
     private int storedChainHeight;
     
     private Wallet.SendRequest pendingSendRequest;
+    
+    
     
 	public void setTestingNetwork(boolean testing)
 	{
@@ -357,6 +360,26 @@ public class BitcoinManager implements PeerEventListener {
     }
 	
     /**
+     * returns the seconds (timestamp) of the last block creation time
+     */
+    public long getLastBlockCreationTime()
+    {
+        if(chain != null)
+        {
+            StoredBlock chainHead = chain.getChainHead();
+            if(chainHead != null)
+            {
+                Block blockHeader = chainHead.getHeader();
+                if(blockHeader != null)
+                {
+                    return blockHeader.getTimeSeconds();
+                }
+            }
+        }
+        return 0;
+    }
+    
+    /**
      * start the bitcoinj app layer
      */
 	public void start() throws Exception
@@ -406,7 +429,7 @@ public class BitcoinManager implements PeerEventListener {
             }
         }
      
-        BlockChain chain = new BlockChain(networkParams, wallet, blockStore);
+        chain = new BlockChain(networkParams, wallet, blockStore);
         // Connect to the localhost node. One minute timeout since we won't try any other peers
 
         peerGroup = new PeerGroup(networkParams, chain);

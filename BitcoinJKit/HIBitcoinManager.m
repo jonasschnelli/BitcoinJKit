@@ -716,6 +716,26 @@ static HIBitcoinManager *_defaultManager = nil;
     return (NSUInteger)c;
 }
 
+- (NSDate *)lastBlockCreationTime
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID tCM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getLastBlockCreationTime", "()J");
+    
+    if (tCM == NULL)
+        return 0;
+    
+    jlong c = (*_jniEnv)->CallLongMethod(_jniEnv, _managerObject, tCM);
+    if(c == 0)
+    {
+        return nil;
+    }
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:c];
+    return date;
+}
+
+
+
 #pragma mark - Key Stack
 
 - (NSString *)addKey
