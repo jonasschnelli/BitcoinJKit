@@ -19,7 +19,7 @@
     jobject _managerObject;
     NSDateFormatter *_dateFormatter;
     BOOL _sending;
-    void(^sendCompletionBlock)(NSString *hash);
+    
     uint64_t _lastBalance;
     NSTimer *_balanceChecker;
     
@@ -36,6 +36,8 @@
 - (void)checkBalance:(NSTimer *)timer;
 
 - (uint64_t)balance:(int)type;
+
+@property (strong) void(^sendCompletionBlock)(NSString *hash);
 
 @end
 
@@ -242,7 +244,7 @@ static HIBitcoinManager *_defaultManager = nil;
 - (void)dealloc
 {
     [self stop];
-    [sendCompletionBlock release];
+    self.sendCompletionBlock = nil;
     [super dealloc];
 }
 
@@ -383,6 +385,10 @@ static HIBitcoinManager *_defaultManager = nil;
     {
         jstring wa = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, walletM);
         
+        if(!wa)
+        {
+            return nil;
+        }
         const char *waStr = (*_jniEnv)->GetStringUTFChars(_jniEnv, wa, NULL);
         
         NSString *str = [NSString stringWithUTF8String:waStr];
@@ -565,34 +571,61 @@ static HIBitcoinManager *_defaultManager = nil;
     return valid;
 }
 
-- (void)sendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment completion:(void(^)(NSString *hash))completion
+- (NSString *)commitPreparedTransaction
 {
-    if (_sending)
-    {
-        if (completion)
-            completion(nil);
-        return;
-    }
-    
-    _sending = YES;
-    [sendCompletionBlock release];
-    sendCompletionBlock = [completion copy];
-    
     jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
     // We're ready! Let's start
-    jmethodID sendM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "sendCoins", "(Ljava/lang/String;Ljava/lang/String;)V");
+    jmethodID commitTXM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "commitSendRequest", "()Ljava/lang/String;");
+    
+    if (commitTXM == NULL)
+    {
+        return nil;
+    }
+    
+    jstring txHashString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, commitTXM);
+    
+    if (txHashString)
+    {
+        const char *tsHashChars = (*_jniEnv)->GetStringUTFChars(_jniEnv, txHashString, NULL);
+        
+        NSString *txHashNSString = [NSString stringWithUTF8String:tsHashChars];
+        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, txHashString, tsHashChars);
+        return txHashNSString;
+    }
+    
+    return nil;
+}
+- (NSInteger)prepareSendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID sendM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "createSendRequest", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
     
     if (sendM == NULL)
     {
-        if (sendCompletionBlock)
-            sendCompletionBlock(nil);
-        
-        [sendCompletionBlock release];
-        sendCompletionBlock = nil;        
+        return kHI_PREPARE_SEND_COINS_DID_FAIL;
     }
     
-    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, sendM, (*_jniEnv)->NewStringUTF(_jniEnv, [[NSString stringWithFormat:@"%lld", coins] UTF8String]),
-                                (*_jniEnv)->NewStringUTF(_jniEnv, receipent.UTF8String));
+    jstring feeString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, sendM, (*_jniEnv)->NewStringUTF(_jniEnv, [[NSString stringWithFormat:@"%lld", coins] UTF8String]),
+                                                         (*_jniEnv)->NewStringUTF(_jniEnv, receipent.UTF8String));
+    
+    if (feeString)
+    {
+        const char *feeChars = (*_jniEnv)->GetStringUTFChars(_jniEnv, feeString, NULL);
+        
+        NSString *fStr = [NSString stringWithUTF8String:feeChars];
+        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, feeString, feeChars);
+ 
+ 
+        if([fStr isEqualToString:@""])
+        {
+            return kHI_PREPARE_SEND_COINS_DID_FAIL;
+        }
+        
+        return [fStr longLongValue];
+    }
+    
+    return kHI_PREPARE_SEND_COINS_DID_FAIL;
 }
 
 - (BOOL)encryptWalletWith:(NSString *)passwd
@@ -762,12 +795,12 @@ static HIBitcoinManager *_defaultManager = nil;
 {
     dispatch_async(dispatch_get_main_queue(), ^{
         _sending = NO;
-        if (sendCompletionBlock)
+        if (self.sendCompletionBlock)
         {
-            sendCompletionBlock(txid);
+            self.sendCompletionBlock(txid);
         }
-        [sendCompletionBlock release];
-        sendCompletionBlock = nil;        
+        [self.sendCompletionBlock release];
+        self.sendCompletionBlock = nil;
     });
 }
 
@@ -775,13 +808,13 @@ static HIBitcoinManager *_defaultManager = nil;
 {
     dispatch_async(dispatch_get_main_queue(), ^{
         _sending = NO;
-        if (sendCompletionBlock)
+        if (self.sendCompletionBlock)
         {
-            sendCompletionBlock(nil);
+            self.sendCompletionBlock(nil);
         }
    
-        [sendCompletionBlock release];
-        sendCompletionBlock = nil;
+        [self.sendCompletionBlock release];
+        self.sendCompletionBlock = nil;
     });
 }
 

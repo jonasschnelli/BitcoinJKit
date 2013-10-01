@@ -14,6 +14,8 @@ extern NSString * const kHIBitcoinManagerTransactionChangedNotification;        
 extern NSString * const kHIBitcoinManagerStartedNotification;                       //<<< Manager start notification. Informs that manager is now ready to use
 extern NSString * const kHIBitcoinManagerStoppedNotification;                       //<<< Manager stop notification. Informs that manager is now stopped and can't be used anymore
 
+#define kHI_PREPARE_SEND_COINS_DID_FAIL -1
+
 /** HIBitcoinManager is a class responsible for managing all Bitcoin actions app should do 
  *
  *  Word of warning. One should not create this object. All access should be done
@@ -129,8 +131,12 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  * @param comment optional comment string that will be bound to the transaction
  * @param complection Completion block where notification about created transaction hash will be sent
  *
+ * @returns the fee in nanobtc as a long
+ *
  */
-- (void)sendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment completion:(void(^)(NSString *hash))completion;
+- (NSInteger)prepareSendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment;
+
+- (NSString *)commitPreparedTransaction;
 
 /** Encrypts wallet with given passphrase
  *

@@ -13,8 +13,8 @@ import com.google.bitcoin.store.BlockStore;
 import com.google.bitcoin.store.SPVBlockStore;
 import com.google.bitcoin.store.UnreadableWalletException;
 import com.google.bitcoin.utils.BriefLogFormatter;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.*;
+
 import org.spongycastle.util.encoders.Base64;
 
 import java.io.ByteArrayOutputStream;
@@ -37,6 +37,8 @@ public class BitcoinManager implements PeerEventListener {
     private File walletFile;
     private int blocksToDownload;
     private int storedChainHeight;
+    
+    private Wallet.SendRequest pendingSendRequest;
     
 	public void setTestingNetwork(boolean testing)
 	{
@@ -96,6 +98,8 @@ public class BitcoinManager implements PeerEventListener {
 	{
         if(type == 0)
         {
+            Wallet.CoinSelector coinSelector = new Wallet.AllowUnconfirmedCoinSelector();
+            
             return wallet.getBalance(Wallet.BalanceType.AVAILABLE);
         }
         else
@@ -261,28 +265,60 @@ public class BitcoinManager implements PeerEventListener {
         return null;
     }
 
-	public void sendCoins(String amount, final String sendToAddressString)
+    public void clearSendRequest()
+    {
+        pendingSendRequest = null;
+    }
+    
+    public String commitSendRequest()
+    {
+        if(pendingSendRequest == null)
+        {
+            return "";
+        }
+        
+        try {
+            wallet.commitTx(pendingSendRequest.tx);
+            ListenableFuture<Transaction> future = peerGroup.broadcastTransaction(pendingSendRequest.tx, 3);
+            
+            Futures.addCallback(future, new FutureCallback<Transaction>() {
+                public void onSuccess(Transaction transaction) {
+                    onTransactionSuccess(pendingSendRequest.tx.getHashAsString());
+                    onTransactionChanged(pendingSendRequest.tx.getHashAsString());
+                }
+                
+                public void onFailure(Throwable throwable) {
+                    onTransactionFailed();
+                    throwable.printStackTrace();
+                }
+            });
+            
+            return pendingSendRequest.tx.getHashAsString();
+            
+        } catch (Exception e) {
+            return "";
+        }
+        
+    }
+	public String createSendRequest(String amount, final String sendToAddressString)
 	{
 		  try {
-			  BigInteger aToSend = new BigInteger(amount);
-			  //aToSend = aToSend.subtract(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE);
-			  Address sendToAddress = new Address(networkParams, sendToAddressString);
-	          final Wallet.SendResult sendResult = wallet.sendCoins(peerGroup, sendToAddress, aToSend);
-	          Futures.addCallback(sendResult.broadcastComplete, new FutureCallback<Transaction>() {
-	               public void onSuccess(Transaction transaction) {
-                       onTransactionSuccess(sendResult.tx.getHashAsString());
-	            	   onTransactionChanged(sendResult.tx.getHashAsString());
-	                }
-
-	                public void onFailure(Throwable throwable) {
-	                	
-	                	onTransactionFailed();
-	                    throwable.printStackTrace();
-	                }
-	            });
+			  BigInteger value = new BigInteger(amount);
+              Address sendToAddress = new Address(networkParams, sendToAddressString);
+              
+              pendingSendRequest = Wallet.SendRequest.to(sendToAddress, value);
+              if (!wallet.completeTx(pendingSendRequest))
+              {
+                  // retuen empty string as sign of a failed transaction preparation
+                  return "";
+              }
+              else
+              {
+                  return pendingSendRequest.fee.toString();
+              }
 	       } catch (Exception e) {
-	    	   onTransactionFailed();   	   
-	       }		
+               return "";
+	       }
 	}
     
     public boolean isAddressValid(String address)
@@ -302,6 +338,11 @@ public class BitcoinManager implements PeerEventListener {
      */
     public String getWalletFileBase64String()
     {
+        if(wallet == null)
+        {
+            return null;
+        }
+        
         ByteArrayOutputStream stream = new ByteArrayOutputStream();
         String base64Wallet = null;
         try {
