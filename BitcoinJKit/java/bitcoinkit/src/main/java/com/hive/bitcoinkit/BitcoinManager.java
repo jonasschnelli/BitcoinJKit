@@ -303,25 +303,31 @@ public class BitcoinManager implements PeerEventListener {
         }
         
     }
+    
+    /**
+     * creates and stores a sendRequest and return the required fee
+     */
 	public String createSendRequest(String amount, final String sendToAddressString)
 	{
-		  try {
-			  BigInteger value = new BigInteger(amount);
-              Address sendToAddress = new Address(networkParams, sendToAddressString);
-              
-              pendingSendRequest = Wallet.SendRequest.to(sendToAddress, value);
-              if (!wallet.completeTx(pendingSendRequest))
-              {
-                  // retuen empty string as sign of a failed transaction preparation
-                  return "";
-              }
-              else
-              {
-                  return pendingSendRequest.fee.toString();
-              }
-	       } catch (Exception e) {
-               return "";
-	       }
+        clearSendRequest();
+        
+        try {
+            BigInteger value = new BigInteger(amount);
+            Address sendToAddress = new Address(networkParams, sendToAddressString);
+
+            pendingSendRequest = Wallet.SendRequest.to(sendToAddress, value);
+            if (!wallet.completeTx(pendingSendRequest))
+            {
+              // return empty string as sign of a failed transaction preparation
+              return "";
+            }
+            else
+            {
+              return pendingSendRequest.fee.toString();
+          }
+        } catch (Exception e) {
+           return "";
+        }
 	}
     
     public boolean isAddressValid(String address)
