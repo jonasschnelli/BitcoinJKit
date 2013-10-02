@@ -18,6 +18,7 @@ import com.google.common.util.concurrent.*;
 import org.spongycastle.util.encoders.Base64;
 
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -38,6 +39,7 @@ public class BitcoinManager implements PeerEventListener {
     private File walletFile;
     private int blocksToDownload;
     private int storedChainHeight;
+    private int broadcastMinTransactions = -1;
     
     private Wallet.SendRequest pendingSendRequest;
     
@@ -47,10 +49,12 @@ public class BitcoinManager implements PeerEventListener {
 	{
 		if (testing)
 		{
+            broadcastMinTransactions = 1;
 			this.networkParams = TestNet3Params.get();
 		}
 		else
 		{
+            broadcastMinTransactions = -1; // std
 			this.networkParams = MainNetParams.get();
 		}
 	}
@@ -282,7 +286,15 @@ public class BitcoinManager implements PeerEventListener {
         
         try {
             wallet.commitTx(pendingSendRequest.tx);
-            ListenableFuture<Transaction> future = peerGroup.broadcastTransaction(pendingSendRequest.tx, 3);
+            ListenableFuture<Transaction> future;
+            if(broadcastMinTransactions < 0)
+            {
+                future = peerGroup.broadcastTransaction(pendingSendRequest.tx);
+            }
+            else
+            {
+                future = peerGroup.broadcastTransaction(pendingSendRequest.tx, broadcastMinTransactions);
+            }
             
             Futures.addCallback(future, new FutureCallback<Transaction>() {
                 public void onSuccess(Transaction transaction) {
@@ -388,7 +400,7 @@ public class BitcoinManager implements PeerEventListener {
     /**
      * start the bitcoinj app layer
      */
-	public void start() throws Exception
+	public void start(String walletStreamAsBase64String) throws Exception
 	{
         storedChainHeight = 0;
         
@@ -396,29 +408,70 @@ public class BitcoinManager implements PeerEventListener {
 
         // Try to read the wallet from storage, create a new one if not possible.
         wallet = null;
-        walletFile = new File(dataDirectory + "/"+ appName +".wallet");
-        try {
-            if (walletFile.exists())
-            {
-            	wallet = Wallet.loadFromFile(walletFile);
-                if(!chainFile.exists())
+        
+        if(walletStreamAsBase64String == null || walletStreamAsBase64String.length() == 0)
+        {
+            walletFile = new File(dataDirectory + "/"+ appName +".wallet");
+            
+            System.err.println("+++ using file wallet ("+dataDirectory + "/"+ appName +".wallet)");
+            
+            try {
+                if (walletFile.exists())
                 {
-                    wallet.clearTransactions(0);
+                    wallet = Wallet.loadFromFile(walletFile);
+                    if(!chainFile.exists())
+                    {
+                        wallet.clearTransactions(0);
+                    }
                 }
+            } catch (UnreadableWalletException e) {
+                // TODO: error case
             }
-        } catch (UnreadableWalletException e) {
-            // TODO: error case
+            
+            if (wallet == null) {
+                // if there is no wallet, create one and add a ec key
+                wallet = new Wallet(networkParams);
+                wallet.addKey(new ECKey());
+                wallet.saveToFile(walletFile);
+                
+                //make wallet autosave
+                wallet.autosaveToFile(walletFile, 1, TimeUnit.SECONDS, null);
+            }
         }
-        if (wallet == null) {
-            // if there is no wallet, create one and add a ec key
-            wallet = new Wallet(networkParams);
-            wallet.addKey(new ECKey());
-            wallet.saveToFile(walletFile);
-        }
+        else
+        {
+            System.err.println("+++ using keychain base64 wallet...");
+            int len = walletStreamAsBase64String.length() / 4 * 3;
+            ByteArrayOutputStream bOut = new ByteArrayOutputStream(len);
+            try
+            {
+                Base64.decode(walletStreamAsBase64String, bOut);
+                ByteArrayInputStream bis = new ByteArrayInputStream(bOut.toByteArray());
+                wallet = Wallet.loadFromFileStream(bis);
+                System.err.println("+++ base64 wallet loaded");
+            }
+            catch (UnreadableWalletException e)
+            {
+                System.err.println("+++ unreable wallet");
+                throw new RuntimeException("exception decoding base64 string: " + e);
+            }
+            catch (IOException e)
+            {
+                System.err.println("+++ ioexeption");
+                throw new RuntimeException("exception decoding base64 string: " + e);
+            }
 
-        //make wallet autosave
-        //TODO, possibility for base64 keychain save option
-        wallet.autosaveToFile(walletFile, 1, TimeUnit.SECONDS, null);
+            // base64 wallet
+            if (wallet == null) {
+                System.err.println("+++ wallet was EMPTY <!");
+                // if there is no wallet, create one and add a ec key
+                wallet = new Wallet(networkParams);
+                wallet.addKey(new ECKey());
+            }
+        }
+        
+
+        
         
 
         // Fetch the first key in the wallet (should be the only key).

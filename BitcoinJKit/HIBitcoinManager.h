@@ -66,7 +66,7 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  * Every time one will try to do that again - it will crash
  * This is due to bitcoind implementation that uses too many globals.
  */
-- (void)start;
+- (void)start:(NSString *)base64Wallet;
 
 /** Stops the manager and stores all up-to-date information in data folder
  *

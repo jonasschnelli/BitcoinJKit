@@ -248,7 +248,7 @@ static HIBitcoinManager *_defaultManager = nil;
     [super dealloc];
 }
 
-- (void)start
+- (void)start:(NSString *)base64Wallet
 {
     [[NSFileManager defaultManager] createDirectoryAtURL:_dataURL withIntermediateDirectories:YES attributes:0 error:NULL];
     
@@ -272,7 +272,7 @@ static HIBitcoinManager *_defaultManager = nil;
     jmethodID setDataDirM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "setDataDirectory", "(Ljava/lang/String;)V");
     if (setDataDirM == NULL)
         return;
-    
+
     (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, setDataDirM, (*_jniEnv)->NewStringUTF(_jniEnv, _dataURL.path.UTF8String));
     if ((*_jniEnv)->ExceptionCheck(_jniEnv))
     {
@@ -294,12 +294,18 @@ static HIBitcoinManager *_defaultManager = nil;
 
     
     // We're ready! Let's start
-    jmethodID startM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "start", "()V");
+    jmethodID startM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "start", "(Ljava/lang/String;)V");
     
     if (startM == NULL)
         return;
+
+    jstring base64walletJString = nil;
+    if(base64Wallet)
+    {
+        base64walletJString = (*_jniEnv)->NewStringUTF(_jniEnv, base64Wallet.UTF8String);
+    }
     
-    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, startM);
+    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, startM, base64walletJString);
     if ((*_jniEnv)->ExceptionCheck(_jniEnv))
     {
         (*_jniEnv)->ExceptionDescribe(_jniEnv);
