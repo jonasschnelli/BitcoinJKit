@@ -409,7 +409,7 @@ public class BitcoinManager implements PeerEventListener {
         // Try to read the wallet from storage, create a new one if not possible.
         wallet = null;
         
-        if(walletStreamAsBase64String == null || walletStreamAsBase64String.length() == 0)
+        if(walletStreamAsBase64String == null)
         {
             walletFile = new File(dataDirectory + "/"+ appName +".wallet");
             
@@ -440,28 +440,32 @@ public class BitcoinManager implements PeerEventListener {
         }
         else
         {
+            // base64 wallet
             System.err.println("+++ using keychain base64 wallet...");
-            int len = walletStreamAsBase64String.length() / 4 * 3;
-            ByteArrayOutputStream bOut = new ByteArrayOutputStream(len);
-            try
+            
+            if(walletStreamAsBase64String.length() > 0)
             {
-                Base64.decode(walletStreamAsBase64String, bOut);
-                ByteArrayInputStream bis = new ByteArrayInputStream(bOut.toByteArray());
-                wallet = Wallet.loadFromFileStream(bis);
-                System.err.println("+++ base64 wallet loaded");
-            }
-            catch (UnreadableWalletException e)
-            {
-                System.err.println("+++ unreable wallet");
-                throw new RuntimeException("exception decoding base64 string: " + e);
-            }
-            catch (IOException e)
-            {
-                System.err.println("+++ ioexeption");
-                throw new RuntimeException("exception decoding base64 string: " + e);
+                int len = walletStreamAsBase64String.length() / 4 * 3;
+                ByteArrayOutputStream bOut = new ByteArrayOutputStream(len);
+                try
+                {
+                    Base64.decode(walletStreamAsBase64String, bOut);
+                    ByteArrayInputStream bis = new ByteArrayInputStream(bOut.toByteArray());
+                    wallet = Wallet.loadFromFileStream(bis);
+                    System.err.println("+++ base64 wallet loaded");
+                }
+                catch (UnreadableWalletException e)
+                {
+                    System.err.println("+++ unreable wallet");
+                    throw new RuntimeException("exception decoding base64 string: " + e);
+                }
+                catch (IOException e)
+                {
+                    System.err.println("+++ ioexeption");
+                    throw new RuntimeException("exception decoding base64 string: " + e);
+                }
             }
 
-            // base64 wallet
             if (wallet == null) {
                 System.err.println("+++ wallet was EMPTY <!");
                 // if there is no wallet, create one and add a ec key
