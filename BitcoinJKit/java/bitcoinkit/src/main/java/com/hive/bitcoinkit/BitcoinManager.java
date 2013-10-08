@@ -485,8 +485,9 @@ public class BitcoinManager implements PeerEventListener {
         boolean chainExistedAlready = chainFile.exists();
         blockStore = new SPVBlockStore(networkParams, chainFile);
         if (!chainExistedAlready) {
-            File checkpointsFile = new File(dataDirectory + "/bitcoinkit.checkpoints");
+            File checkpointsFile = new File(dataDirectory + "/" + appName + ".checkpoints");
             if (checkpointsFile.exists()) {
+                System.err.println("+++using the checkpoint file");
                 FileInputStream stream = new FileInputStream(checkpointsFile);
                 CheckpointManager.checkpoint(networkParams, stream, blockStore, key.getCreationTimeSeconds());
             }

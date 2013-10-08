@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		D901F49917AF9DAB0071780D /* JavaVM.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D901F49817AF9DAA0071780D /* JavaVM.framework */; };
-		D901F49B17AF9DDB0071780D /* boot.jar in Frameworks */ = {isa = PBXBuildFile; fileRef = D901F49A17AF9DDB0071780D /* boot.jar */; };
 		D901F50017B279EA0071780D /* boot.jar in Resources */ = {isa = PBXBuildFile; fileRef = D901F49A17AF9DDB0071780D /* boot.jar */; };
 		D958B09E17A29B0500B0EDD5 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D91FE4F1178EB1F1001B37D8 /* Cocoa.framework */; };
 		D958B0A417A29B0500B0EDD5 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D958B0A217A29B0500B0EDD5 /* InfoPlist.strings */; };
@@ -41,7 +40,6 @@
 			files = (
 				D901F49917AF9DAB0071780D /* JavaVM.framework in Frameworks */,
 				D958B09E17A29B0500B0EDD5 /* Cocoa.framework in Frameworks */,
-				D901F49B17AF9DDB0071780D /* boot.jar in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -288,12 +286,7 @@
 				GCC_VERSION = "";
 				INFOPLIST_FILE = "BitcoinJKit/BitcoinJKit-Info.plist";
 				INSTALL_PATH = "@executable_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"\"$(SRCROOT)/avian/build/darwin-x86_64\"",
-					"\"$(SRCROOT)/avian/build/darwin-x86_64-debug-heapdump-openjdk-src\"",
-					"\"$(SRCROOT)/avian/build/darwin-x86_64-continuations-openjdk-src\"",
-				);
+				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				MACOSX_DEPLOYMENT_TARGET = 10.6;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -313,12 +306,7 @@
 				GCC_VERSION = "";
 				INFOPLIST_FILE = "BitcoinJKit/BitcoinJKit-Info.plist";
 				INSTALL_PATH = "@executable_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"\"$(SRCROOT)/avian/build/darwin-x86_64\"",
-					"\"$(SRCROOT)/avian/build/darwin-x86_64-debug-heapdump-openjdk-src\"",
-					"\"$(SRCROOT)/avian/build/darwin-x86_64-continuations-openjdk-src\"",
-				);
+				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				MACOSX_DEPLOYMENT_TARGET = 10.6;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

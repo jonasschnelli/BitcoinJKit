@@ -62,8 +62,6 @@ JNIEXPORT void JNICALL onPeerCountChanged
 JNIEXPORT void JNICALL onSynchronizationUpdate
 (JNIEnv *env, jobject thisobject, jdouble progress, jlong blockCount, jlong totalBlocks)
 {
-    NSLog(@"========== total: %ld", (long)totalBlocks);
-    
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     [[HIBitcoinManager defaultManager] onSynchronizationChanged:(double)progress blockCount:blockCount totalBlocks:totalBlocks];
     [pool release];
@@ -251,6 +249,16 @@ static HIBitcoinManager *_defaultManager = nil;
 - (void)start:(NSString *)base64Wallet
 {
     [[NSFileManager defaultManager] createDirectoryAtURL:_dataURL withIntermediateDirectories:YES attributes:0 error:NULL];
+
+    // check if there is a need to copy the checkpoint file
+    NSString *checkpointFilename = [_appName stringByAppendingString:@".checkpoints"];
+    NSString *checkpointFilePath = [_dataURL.path stringByAppendingPathComponent:checkpointFilename];
+    
+    if(![[NSFileManager defaultManager] fileExistsAtPath:checkpointFilePath])
+    {
+        // copy checkpoint file from the bundle
+        [[NSFileManager defaultManager] copyItemAtPath:[[NSBundle mainBundle] pathForResource:@"checkpoints" ofType:@""] toPath:checkpointFilePath error:nil];
+    }
     
     jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
     
