@@ -4,6 +4,7 @@ import static com.google.bitcoin.core.Utils.bytesToHexString;
 
 import com.google.bitcoin.core.*;
 import com.google.bitcoin.crypto.KeyCrypterException;
+import com.google.bitcoin.crypto.KeyCrypterScrypt;
 import com.google.bitcoin.discovery.DnsDiscovery;
 import com.google.bitcoin.params.MainNetParams;
 import com.google.bitcoin.params.RegTestParams;
@@ -16,6 +17,7 @@ import com.google.bitcoin.utils.BriefLogFormatter;
 import com.google.common.util.concurrent.*;
 
 import org.spongycastle.util.encoders.Base64;
+import org.spongycastle.crypto.params.KeyParameter;
 
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
@@ -319,7 +321,7 @@ public class BitcoinManager implements PeerEventListener {
     /**
      * creates and stores a sendRequest and return the required fee
      */
-	public String createSendRequest(String amount, final String sendToAddressString)
+	public String createSendRequest(String amount, final String sendToAddressString, String passphrase)
 	{
         clearSendRequest();
         
@@ -328,6 +330,19 @@ public class BitcoinManager implements PeerEventListener {
             Address sendToAddress = new Address(networkParams, sendToAddressString);
 
             pendingSendRequest = Wallet.SendRequest.to(sendToAddress, value);
+            
+            // if there is a passphrase set, try to encrypt
+            if(passphrase != null && wallet != null && wallet.isEncrypted())
+            {
+                System.err.println("\n\n+++ try to set password\n\n");
+                // set the AES key if the password was set
+                org.spongycastle.crypto.params.KeyParameter keyParams = wallet.getKeyCrypter().deriveKey(passphrase);
+                if(keyParams == null)
+                {
+                    System.err.println("\n\n+++ keyparams is null\n\n");
+                }
+                pendingSendRequest.aesKey = keyParams;
+            }
             if (!wallet.completeTx(pendingSendRequest))
             {
               // return empty string as sign of a failed transaction preparation
@@ -338,6 +353,7 @@ public class BitcoinManager implements PeerEventListener {
               return pendingSendRequest.fee.toString();
           }
         } catch (Exception e) {
+            e.printStackTrace();
            return "";
         }
 	}
@@ -398,9 +414,32 @@ public class BitcoinManager implements PeerEventListener {
     }
     
     /**
+     * check if wallet is encrypted
+     */
+    public boolean isWalletEncrypted()
+    {
+        if(wallet != null)
+        {
+            return wallet.isEncrypted();
+        }
+        return false;
+    }
+    
+    /**
+     * encrypt your wallet
+     */
+    public void encryptWallet(String passphrase)
+    {
+        if(wallet != null)
+        {
+            wallet.encrypt(passphrase);
+        }
+    }
+    
+    /**
      * start the bitcoinj app layer
      */
-	public void start(String walletStreamAsBase64String) throws Exception
+	public void start() throws Exception
 	{
         storedChainHeight = 0;
         
@@ -409,77 +448,58 @@ public class BitcoinManager implements PeerEventListener {
         // Try to read the wallet from storage, create a new one if not possible.
         wallet = null;
         
-        if(walletStreamAsBase64String == null)
-        {
-            walletFile = new File(dataDirectory + "/"+ appName +".wallet");
-            
-            System.err.println("+++ using file wallet ("+dataDirectory + "/"+ appName +".wallet)");
-            
-            try {
-                if (walletFile.exists())
-                {
-                    wallet = Wallet.loadFromFile(walletFile);
-                    if(!chainFile.exists())
-                    {
-                        wallet.clearTransactions(0);
-                    }
-                }
-            } catch (UnreadableWalletException e) {
-                // TODO: error case
-            }
-            
-            if (wallet == null) {
-                // if there is no wallet, create one and add a ec key
-                wallet = new Wallet(networkParams);
-                wallet.addKey(new ECKey());
-                wallet.saveToFile(walletFile);
-                
-                //make wallet autosave
-                wallet.autosaveToFile(walletFile, 1, TimeUnit.SECONDS, null);
-            }
-        }
-        else
-        {
-            // base64 wallet
-            System.err.println("+++ using keychain base64 wallet...");
-            
-            if(walletStreamAsBase64String.length() > 0)
+     
+        walletFile = new File(dataDirectory + "/"+ appName +".wallet");
+        System.err.println("+++ using wallet file ("+dataDirectory + "/"+ appName +".wallet)");
+        
+        try {
+            if (walletFile.exists())
             {
-                int len = walletStreamAsBase64String.length() / 4 * 3;
-                ByteArrayOutputStream bOut = new ByteArrayOutputStream(len);
-                try
+                wallet = Wallet.loadFromFile(walletFile);
+                if(wallet != null && wallet.isEncrypted())
                 {
-                    Base64.decode(walletStreamAsBase64String, bOut);
-                    ByteArrayInputStream bis = new ByteArrayInputStream(bOut.toByteArray());
-                    wallet = Wallet.loadFromFileStream(bis);
-                    System.err.println("+++ base64 wallet loaded");
+                    System.err.println("\n\n+++ wallet is encrypted LOAD\n\n");
                 }
-                catch (UnreadableWalletException e)
+                if(!chainFile.exists())
                 {
-                    System.err.println("+++ unreable wallet");
-                    throw new RuntimeException("exception decoding base64 string: " + e);
-                }
-                catch (IOException e)
-                {
-                    System.err.println("+++ ioexeption");
-                    throw new RuntimeException("exception decoding base64 string: " + e);
+                    wallet.clearTransactions(0);
                 }
             }
+        } catch (UnreadableWalletException e) {
+            // TODO: error case
+        }
+        
+        if (wallet == null) {
+            // if there is no wallet, create one and add a ec key
+            wallet = new Wallet(networkParams);
 
-            if (wallet == null) {
-                System.err.println("+++ wallet was EMPTY <!");
-                // if there is no wallet, create one and add a ec key
-                wallet = new Wallet(networkParams);
-                wallet.addKey(new ECKey());
+            if(wallet != null && wallet.isEncrypted())
+            {
+                System.err.println("\n\n+++ wallet is encrypted\n\n");
+            }
+            else
+            {
+                System.err.println("\n\n+++ wallet is NOT encrypted\n\n");
+            }
+            wallet.addKey(new ECKey());
+            wallet.saveToFile(walletFile);
+            //set wallet to autosave
+            wallet.autosaveToFile(walletFile, 1, TimeUnit.SECONDS, null);
+        }
+
+        // get the oldest key (for the checkpoint file)
+        long oldestKey = 0;
+        for(ECKey key: wallet.getKeys())
+        {
+            long keyAge = key.getCreationTimeSeconds();
+            if(oldestKey == 0 || keyAge < oldestKey)
+            {
+                oldestKey = keyAge;
             }
         }
         
-
-        
-        
-
-        // Fetch the first key in the wallet (should be the only key).
-        ECKey key = wallet.getKeys().iterator().next();
+        String oldestKeyString = String.valueOf(oldestKey);
+        System.err.println("+++oldest key: "+oldestKeyString);
         
         // Load the block chain, if there is one stored locally. If it's going to be freshly created, checkpoint it.
         boolean chainExistedAlready = chainFile.exists();
@@ -489,7 +509,7 @@ public class BitcoinManager implements PeerEventListener {
             if (checkpointsFile.exists()) {
                 System.err.println("+++using the checkpoint file");
                 FileInputStream stream = new FileInputStream(checkpointsFile);
-                CheckpointManager.checkpoint(networkParams, stream, blockStore, key.getCreationTimeSeconds());
+                CheckpointManager.checkpoint(networkParams, stream, blockStore, oldestKey);
             }
         }
      
@@ -624,7 +644,6 @@ public class BitcoinManager implements PeerEventListener {
 	public void onPeerConnected(Peer peer, int peerCount)
 	{
 	}
-	
 	
 	public void onPeerDisconnected(Peer peer, int peerCount)
 	{

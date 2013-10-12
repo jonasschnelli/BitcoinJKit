@@ -63,10 +63,8 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
 /** Starts the manager initializing all data and starting network sync. 
  *
  * One should start the manager only once. After configuring the singleton.
- * Every time one will try to do that again - it will crash
- * This is due to bitcoind implementation that uses too many globals.
  */
-- (void)start:(NSString *)base64Wallet;
+- (void)start;
 
 /** Stops the manager and stores all up-to-date information in data folder
  *
@@ -135,17 +133,17 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  * @returns the fee in nanobtc as a long
  *
  */
-- (NSInteger)prepareSendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment;
+- (NSInteger)prepareSendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment password:(NSString *)password;
 
 - (NSString *)commitPreparedTransaction;
 
 /** Encrypts wallet with given passphrase
  *
- * @param passwd NSString value of the passphrase to encrypt wallet with
+ * @param passphrase NSString value of the passphrase to encrypt wallet with
  *
  * @returns YES if encryption was successful, NO - otherwise
  */
-- (BOOL)encryptWalletWith:(NSString *)passwd;
+- (BOOL)encryptWalletWith:(NSString *)passphrase;
 
 /** Changes the encryption passphrase for the wallet
  *
@@ -190,6 +188,12 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  * @returns YES if import was successful. NO - otherwise
  */
 - (NSString *)formatNanobtc:(NSInteger)nanoBtc;
+
+/** Checks if the wallet is encryped
+ *
+ * @returns YES if wallet is encryped. NO - otherwise
+ */
+- (BOOL)isWalletEncrypted;
 
 @end
  

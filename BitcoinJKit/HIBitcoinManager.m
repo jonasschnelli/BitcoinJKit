@@ -246,18 +246,21 @@ static HIBitcoinManager *_defaultManager = nil;
     [super dealloc];
 }
 
-- (void)start:(NSString *)base64Wallet
+- (void)start
 {
     [[NSFileManager defaultManager] createDirectoryAtURL:_dataURL withIntermediateDirectories:YES attributes:0 error:NULL];
 
-    // check if there is a need to copy the checkpoint file
-    NSString *checkpointFilename = [_appName stringByAppendingString:@".checkpoints"];
-    NSString *checkpointFilePath = [_dataURL.path stringByAppendingPathComponent:checkpointFilename];
-    
-    if(![[NSFileManager defaultManager] fileExistsAtPath:checkpointFilePath])
+    if(!_testingNetwork)
     {
-        // copy checkpoint file from the bundle
-        [[NSFileManager defaultManager] copyItemAtPath:[[NSBundle mainBundle] pathForResource:@"checkpoints" ofType:@""] toPath:checkpointFilePath error:nil];
+        // check if there is a need to copy the checkpoint file
+        NSString *checkpointFilename = [_appName stringByAppendingString:@".checkpoints"];
+        NSString *checkpointFilePath = [_dataURL.path stringByAppendingPathComponent:checkpointFilename];
+        
+        if(![[NSFileManager defaultManager] fileExistsAtPath:checkpointFilePath])
+        {
+            // copy checkpoint file from the bundle
+            [[NSFileManager defaultManager] copyItemAtPath:[[NSBundle mainBundle] pathForResource:@"checkpoints" ofType:@""] toPath:checkpointFilePath error:nil];
+        }
     }
     
     jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
@@ -302,18 +305,12 @@ static HIBitcoinManager *_defaultManager = nil;
 
     
     // We're ready! Let's start
-    jmethodID startM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "start", "(Ljava/lang/String;)V");
+    jmethodID startM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "start", "()V");
     
     if (startM == NULL)
         return;
 
-    jstring base64walletJString = nil;
-    if(base64Wallet)
-    {
-        base64walletJString = (*_jniEnv)->NewStringUTF(_jniEnv, base64Wallet.UTF8String);
-    }
-    
-    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, startM, base64walletJString);
+    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, startM);
     if ((*_jniEnv)->ExceptionCheck(_jniEnv))
     {
         (*_jniEnv)->ExceptionDescribe(_jniEnv);
@@ -326,6 +323,56 @@ static HIBitcoinManager *_defaultManager = nil;
     [[NSNotificationCenter defaultCenter] postNotificationName:kHIBitcoinManagerStartedNotification object:self];
     [self willChangeValueForKey:@"walletAddress"];
     [self didChangeValueForKey:@"walletAddress"];
+}
+
+- (void)stop
+{
+    [_balanceChecker invalidate];
+    _balanceChecker = nil;
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID stopM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "stop", "()V");
+    
+    if (stopM == NULL)
+        return;
+    
+    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, stopM);
+    if ((*_jniEnv)->ExceptionCheck(_jniEnv))
+    {
+        (*_jniEnv)->ExceptionDescribe(_jniEnv);
+        (*_jniEnv)->ExceptionClear(_jniEnv);
+    }
+    
+    [self willChangeValueForKey:@"isRunning"];
+    _isRunning = NO;
+    [self didChangeValueForKey:@"isRunning"];
+    [[NSNotificationCenter defaultCenter] postNotificationName:kHIBitcoinManagerStoppedNotification object:self];
+}
+
+#pragma mark - Wallet Stack
+
+- (NSString *)addKey
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID addKeyM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "addKey", "()Ljava/lang/String;");
+    
+    if (addKeyM == NULL)
+        return nil;
+    
+    jstring newKeyString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, addKeyM);
+    
+    if (newKeyString)
+    {
+        const char *newKeyStringC = (*_jniEnv)->GetStringUTFChars(_jniEnv, newKeyString, NULL);
+        
+        NSString *newKeyStringNS = [NSString stringWithUTF8String:newKeyStringC];
+        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, newKeyString, newKeyStringC);
+        
+        return newKeyStringNS;
+    }
+    
+    return nil;
 }
 
 - (NSArray *)allWalletAddresses
@@ -414,29 +461,104 @@ static HIBitcoinManager *_defaultManager = nil;
     return nil;
 }
 
-- (void)stop
+- (BOOL)isWalletEncrypted
 {
-    [_balanceChecker invalidate];
-    _balanceChecker = nil;
-    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];    
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
     // We're ready! Let's start
-    jmethodID stopM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "stop", "()V");
+    jmethodID isEncMethode = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "isWalletEncrypted", "()Z");
     
-    if (stopM == NULL)
-        return;
+    if (isEncMethode == NULL)
+        return NO;
     
-    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, stopM);
-    if ((*_jniEnv)->ExceptionCheck(_jniEnv))
+    jboolean valid = (*_jniEnv)->CallBooleanMethod(_jniEnv, _managerObject, isEncMethode);
+    return valid;
+}
+
+- (BOOL)encryptWalletWith:(NSString *)passphrase
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID encMethode = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "encryptWallet", "(Ljava/lang/String;)V");
+    
+    if (encMethode == NULL)
+        return NO;
+    
+    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, encMethode, (*_jniEnv)->NewStringUTF(_jniEnv, passphrase.UTF8String));
+    
+    return YES;
+}
+
+- (BOOL)changeWalletEncryptionKeyFrom:(NSString *)oldpasswd to:(NSString *)newpasswd
+{
+    return NO;
+}
+
+- (BOOL)unlockWalletWith:(NSString *)passwd
+{
+    return NO;
+}
+
+- (void)lockWallet
+{
+    
+}
+
+- (BOOL)exportWalletTo:(NSURL *)exportURL
+{
+    return NO;
+}
+
+- (BOOL)importWalletFrom:(NSURL *)importURL
+{
+    return NO;
+}
+
+
+- (uint64_t)balance
+{
+    return [self balance:0];
+}
+
+- (uint64_t)balanceUnconfirmed
+{
+    return [self balance:1];
+}
+
+- (uint64_t)balance:(int)type
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID balanceM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getBalanceString", "(I)Ljava/lang/String;");
+    
+    if (balanceM == NULL)
+        return 0;
+    
+    jstring balanceString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, balanceM, (jint)type);
+    
+    if (balanceString)
     {
-        (*_jniEnv)->ExceptionDescribe(_jniEnv);
-        (*_jniEnv)->ExceptionClear(_jniEnv);
+        const char *balanceChars = (*_jniEnv)->GetStringUTFChars(_jniEnv, balanceString, NULL);
+        
+        NSString *bStr = [NSString stringWithUTF8String:balanceChars];
+        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, balanceString, balanceChars);
+        
+        return [bStr longLongValue];
     }
     
-    [self willChangeValueForKey:@"isRunning"];
-    _isRunning = NO;
-    [self didChangeValueForKey:@"isRunning"];
-    [[NSNotificationCenter defaultCenter] postNotificationName:kHIBitcoinManagerStoppedNotification object:self];
+    return 0;
 }
+
+- (void)checkBalance:(NSTimer *)timer
+{
+    uint64_t currentBalance = [self balance];
+    if (_lastBalance != currentBalance)
+    {
+        [self onBalanceChanged];
+        _lastBalance = currentBalance;
+    }
+}
+
+#pragma mark - transaction/blockchain stack
 
 - (NSDictionary *)modifiedTransactionForTransaction:(NSDictionary *)transaction
 {
@@ -609,11 +731,18 @@ static HIBitcoinManager *_defaultManager = nil;
     
     return nil;
 }
-- (NSInteger)prepareSendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment
+- (NSInteger)prepareSendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment password:(NSString *)password
 {
+    
+    jstring passwordJString = NULL;
+    if(password)
+    {
+        passwordJString = (*_jniEnv)->NewStringUTF(_jniEnv, password.UTF8String);
+    }
+    
     jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
     // We're ready! Let's start
-    jmethodID sendM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "createSendRequest", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+    jmethodID sendM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "createSendRequest", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
     
     if (sendM == NULL)
     {
@@ -621,7 +750,8 @@ static HIBitcoinManager *_defaultManager = nil;
     }
     
     jstring feeString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, sendM, (*_jniEnv)->NewStringUTF(_jniEnv, [[NSString stringWithFormat:@"%lld", coins] UTF8String]),
-                                                         (*_jniEnv)->NewStringUTF(_jniEnv, receipent.UTF8String));
+                                                     (*_jniEnv)->NewStringUTF(_jniEnv, receipent.UTF8String),
+                                                     passwordJString);
     
     if (feeString)
     {
@@ -640,80 +770,6 @@ static HIBitcoinManager *_defaultManager = nil;
     }
     
     return kHI_PREPARE_SEND_COINS_DID_FAIL;
-}
-
-- (BOOL)encryptWalletWith:(NSString *)passwd
-{
-    return NO;
-}
-
-- (BOOL)changeWalletEncryptionKeyFrom:(NSString *)oldpasswd to:(NSString *)newpasswd
-{
-    return NO;
-}
-
-- (BOOL)unlockWalletWith:(NSString *)passwd
-{
-    return NO;
-}
-
-- (void)lockWallet
-{
-    
-}
-
-- (BOOL)exportWalletTo:(NSURL *)exportURL
-{
-    return NO;
-}
-
-- (BOOL)importWalletFrom:(NSURL *)importURL
-{
-    return NO;
-}
-
-- (uint64_t)balance
-{
-    return [self balance:0];
-}
-
-- (uint64_t)balanceUnconfirmed
-{
-    return [self balance:1];
-}
-
-- (uint64_t)balance:(int)type
-{
-    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
-    // We're ready! Let's start
-    jmethodID balanceM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getBalanceString", "(I)Ljava/lang/String;");
-    
-    if (balanceM == NULL)
-        return 0;
-    
-    jstring balanceString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, balanceM, (jint)type);
-    
-    if (balanceString)
-    {
-        const char *balanceChars = (*_jniEnv)->GetStringUTFChars(_jniEnv, balanceString, NULL);
-        
-        NSString *bStr = [NSString stringWithUTF8String:balanceChars];
-        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, balanceString, balanceChars);
-        
-        return [bStr longLongValue];
-    }
-    
-    return 0;
-}
-
-- (void)checkBalance:(NSTimer *)timer
-{
-    uint64_t currentBalance = [self balance];
-    if (_lastBalance != currentBalance)
-    {
-        [self onBalanceChanged];
-        _lastBalance = currentBalance;
-    }
 }
 
 - (NSUInteger)transactionCount
@@ -746,34 +802,6 @@ static HIBitcoinManager *_defaultManager = nil;
     }
     NSDate *date = [NSDate dateWithTimeIntervalSince1970:c];
     return date;
-}
-
-
-
-#pragma mark - Key Stack
-
-- (NSString *)addKey
-{
-    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
-    // We're ready! Let's start
-    jmethodID addKeyM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "addKey", "()Ljava/lang/String;");
-    
-    if (addKeyM == NULL)
-    return nil;
-    
-    jstring newKeyString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, addKeyM);
-    
-    if (newKeyString)
-    {
-        const char *newKeyStringC = (*_jniEnv)->GetStringUTFChars(_jniEnv, newKeyString, NULL);
-        
-        NSString *newKeyStringNS = [NSString stringWithUTF8String:newKeyStringC];
-        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, newKeyString, newKeyStringC);
-        
-        return newKeyStringNS;
-    }
-    
-    return nil;
 }
 
 #pragma mark - Callbacks
