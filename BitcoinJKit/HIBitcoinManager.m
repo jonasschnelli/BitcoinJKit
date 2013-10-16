@@ -84,6 +84,23 @@ JNIEXPORT void JNICALL onTransactionChanged
     [pool release];
 }
 
+JNIEXPORT void JNICALL onCoinsReceived
+(JNIEnv *env, jobject thisobject, jstring txid)
+{
+    NSAutoreleasePool *pool = [NSAutoreleasePool new];
+    if (txid)
+    {
+        const char *txc = (*env)->GetStringUTFChars(env, txid, NULL);
+        
+        NSString *bStr = [NSString stringWithUTF8String:txc];
+        (*env)->ReleaseStringUTFChars(env, txid, txc);
+        [[HIBitcoinManager defaultManager] onCoinsReceived:bStr];
+        
+    }
+    
+    [pool release];
+}
+
 JNIEXPORT void JNICALL onTransactionSucceeded
 (JNIEnv *env, jobject thisobject, jstring txid)
 {
@@ -113,6 +130,7 @@ JNIEXPORT void JNICALL onTransactionFailed
 static JNINativeMethod methods[] = {
     {"onBalanceChanged",        "()V",                                     (void *)&onBalanceChanged},
     {"onTransactionChanged",    "(Ljava/lang/String;)V",                   (void *)&onTransactionChanged},
+    {"onHICoinsReceived",       "(Ljava/lang/String;)V",                         (void *)&onCoinsReceived},
     {"onTransactionSuccess",    "(Ljava/lang/String;)V",                   (void *)&onTransactionSucceeded},
     {"onTransactionFailed",     "()V",                                     (void *)&onTransactionFailed},
     {"onPeerCountChanged",       "(I)V",                                     (void *)&onPeerCountChanged},
@@ -244,6 +262,18 @@ static HIBitcoinManager *_defaultManager = nil;
     [self stop];
     self.sendCompletionBlock = nil;
     [super dealloc];
+}
+
+- (void)resyncBlockchain
+{
+    NSString *blockchainFilename = [_appName stringByAppendingString:@".spvchain"];
+    NSString *blockchainFilePath = [_dataURL.path stringByAppendingPathComponent:blockchainFilename];
+    if([[NSFileManager defaultManager] fileExistsAtPath:blockchainFilePath])
+    {
+        [[NSFileManager defaultManager] removeItemAtPath:blockchainFilePath error:nil];
+    }
+    
+    [self start];
 }
 
 - (void)start
@@ -461,6 +491,20 @@ static HIBitcoinManager *_defaultManager = nil;
     return nil;
 }
 
+- (BOOL)saveWallet
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID saveMethode = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "saveWallet", "()V");
+    
+    if (saveMethode == NULL)
+        return NO;
+    
+    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, saveMethode);
+    
+    return YES;
+}
+
 - (BOOL)isWalletEncrypted
 {
     jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
@@ -488,6 +532,20 @@ static HIBitcoinManager *_defaultManager = nil;
     return YES;
 }
 
+- (BOOL)removeEncryption:(NSString *)passphrase
+{
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID encMethode = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "decryptWallet", "(Ljava/lang/String;)Z");
+    
+    if (encMethode == NULL)
+        return NO;
+    
+    jboolean success = (*_jniEnv)->CallBooleanMethod(_jniEnv, _managerObject, encMethode, (*_jniEnv)->NewStringUTF(_jniEnv, passphrase.UTF8String));
+    
+    return success;
+}
+
 - (BOOL)changeWalletEncryptionKeyFrom:(NSString *)oldpasswd to:(NSString *)newpasswd
 {
     return NO;
@@ -503,8 +561,41 @@ static HIBitcoinManager *_defaultManager = nil;
     
 }
 
-- (BOOL)exportWalletTo:(NSURL *)exportURL
+- (BOOL)exportWalletWithPassphase:(NSString *)passphrase To:(NSURL *)exportURL
 {
+    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+    // We're ready! Let's start
+    jmethodID tM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "getWalletDump", "(Ljava/lang/String;)Ljava/lang/String;");
+    
+    if (tM == NULL)
+        return NO;
+    
+    jstring passphraseJString = nil;
+    
+    if(passphrase)
+    {
+        passphraseJString = (*_jniEnv)->NewStringUTF(_jniEnv, passphrase.UTF8String);
+    }
+    
+    jstring walletDrumpString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, tM, passphraseJString);
+    
+    if (walletDrumpString)
+    {
+        const char *walletDrumpChars = (*_jniEnv)->GetStringUTFChars(_jniEnv, walletDrumpString, NULL);
+        
+        NSString *bStr = [NSString stringWithUTF8String:walletDrumpChars];
+        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, walletDrumpString, walletDrumpChars);
+        
+        NSError *error = nil;
+        [bStr writeToFile:exportURL.path atomically:YES encoding:NSUTF8StringEncoding error:&error];
+        if(error) {
+            return NO;
+        }
+        
+        NSLog(@"%@", bStr);
+        return YES;
+    }
+    
     return NO;
 }
 
@@ -746,7 +837,7 @@ static HIBitcoinManager *_defaultManager = nil;
     
     if (sendM == NULL)
     {
-        return kHI_PREPARE_SEND_COINS_DID_FAIL;
+        return kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN;
     }
     
     jstring feeString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, sendM, (*_jniEnv)->NewStringUTF(_jniEnv, [[NSString stringWithFormat:@"%lld", coins] UTF8String]),
@@ -763,13 +854,25 @@ static HIBitcoinManager *_defaultManager = nil;
  
         if([fStr isEqualToString:@""])
         {
-            return kHI_PREPARE_SEND_COINS_DID_FAIL;
+            return kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN;
+        }
+        else if([fStr isEqualToString:[NSString stringWithFormat:@"%d", kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN]])
+        {
+            return kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN;
+        }
+        else if([fStr isEqualToString:[NSString stringWithFormat:@"%d", kHI_PREPARE_SEND_COINS_DID_FAIL_ENC]])
+        {
+            return kHI_PREPARE_SEND_COINS_DID_FAIL_ENC;
+        }
+        else if([fStr isEqualToString:[NSString stringWithFormat:@"%d", kHI_PREPARE_SEND_COINS_DID_FAIL_NOT_ENOUGHT_FUNDS]])
+        {
+            return kHI_PREPARE_SEND_COINS_DID_FAIL_NOT_ENOUGHT_FUNDS;
         }
         
         return [fStr longLongValue];
     }
     
-    return kHI_PREPARE_SEND_COINS_DID_FAIL;
+    return kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN;
 }
 
 - (NSUInteger)transactionCount
@@ -853,6 +956,15 @@ static HIBitcoinManager *_defaultManager = nil;
     });
 }
 
+- (void)onCoinsReceived:(NSString *)txid
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self willChangeValueForKey:@"balance"];
+        [[NSNotificationCenter defaultCenter] postNotificationName:kHIBitcoinManagerCoinsReceivedNotification object:txid];
+        [self didChangeValueForKey:@"balance"];
+    });
+}
+
 - (void)onTransactionSucceeded:(NSString *)txid
 {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -884,7 +996,26 @@ static HIBitcoinManager *_defaultManager = nil;
 - (NSString *)formatNanobtc:(NSInteger)nanoBtc
 {
     //TODO: nice and configurable
-    return [NSString stringWithFormat:@"%.6g ฿", (double)nanoBtc/100000000];
+    double btcVal = nanoBtc/100000000.0;
+    NSMutableString *string = [[[NSNumber numberWithDouble:btcVal] stringValue] mutableCopy];
+//    int nullLength = 0;
+//    for(int i = string.length; i > 0; i--)
+//    {
+//        unichar aChar = [string characterAtIndex:i-1];
+//        
+//        if(aChar == '0')
+//        {
+//            nullLength++;
+//        }
+//        else
+//        {
+//            break;
+//        }
+//    }
+//    [string deleteCharactersInRange:NSMakeRange(string.length - nullLength, nullLength)];
+
+    [string appendString:@"\u00a0BTC"];
+    return string;
 }
 
 @end

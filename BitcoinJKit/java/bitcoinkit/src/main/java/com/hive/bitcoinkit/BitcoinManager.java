@@ -301,7 +301,6 @@ public class BitcoinManager implements PeerEventListener {
             Futures.addCallback(future, new FutureCallback<Transaction>() {
                 public void onSuccess(Transaction transaction) {
                     onTransactionSuccess(pendingSendRequest.tx.getHashAsString());
-                    onTransactionChanged(pendingSendRequest.tx.getHashAsString());
                 }
                 
                 public void onFailure(Throwable throwable) {
@@ -346,15 +345,23 @@ public class BitcoinManager implements PeerEventListener {
             if (!wallet.completeTx(pendingSendRequest))
             {
               // return empty string as sign of a failed transaction preparation
-              return "";
+              return "-100"; // = unknown error
             }
             else
             {
               return pendingSendRequest.fee.toString();
           }
+        } catch (KeyCrypterException e) {
+            e.printStackTrace();
+            
+            for (StackTraceElement ste : Thread.currentThread().getStackTrace()) {
+                System.err.println(ste);
+            }
+            
+            return "-1"; // = crypter error
         } catch (Exception e) {
             e.printStackTrace();
-           return "";
+           return "-100"; // = unknown error
         }
 	}
     
@@ -432,7 +439,98 @@ public class BitcoinManager implements PeerEventListener {
     {
         if(wallet != null)
         {
-            wallet.encrypt(passphrase);
+            try
+            {
+                wallet.encrypt(passphrase);
+                wallet.saveToFile(walletFile);
+            }
+            catch (Exception e)
+            {
+                // TODO: error case
+            }
+        }
+    }
+    
+    /**
+     * decrypt your wallet
+     */
+    public String getWalletDump(String passphrase)
+    {
+        try
+        {
+            StringBuilder walletDump = new StringBuilder(2048);
+            List<ECKey> keys = wallet.getKeys();// toStringWithPrivate()
+            for(ECKey key: keys)
+            {
+                ECKey keyToPlayWith = key;
+                
+                if(wallet.isEncrypted() && passphrase != null)
+                {
+                    org.spongycastle.crypto.params.KeyParameter keyParams = wallet.getKeyCrypter().deriveKey(passphrase);
+                    
+                    ECKey decryptedKey = key.decrypt(wallet.getKeyCrypter(),keyParams);
+                    if(decryptedKey != null)
+                    {
+                        keyToPlayWith = decryptedKey;
+                    }
+                }
+                
+                walletDump.append(keyToPlayWith.toStringWithPrivate()+"\n");
+            }
+            
+            return walletDump.toString();
+        }
+        catch (Exception e)
+        {
+            return null;
+        }
+    }
+    /**
+     * decrypt your wallet
+     */
+    public boolean decryptWallet(String passphrase)
+    {
+        if(wallet != null)
+        {
+            try
+            {
+                // if there is a passphrase set, try to encrypt
+                if(passphrase != null && wallet != null && wallet.isEncrypted())
+                {
+                    System.err.println("\n\n+++ descript: try to set password\n\n");
+                    // set the AES key if the password was set
+                    org.spongycastle.crypto.params.KeyParameter keyParams = wallet.getKeyCrypter().deriveKey(passphrase);
+                    
+                    wallet.decrypt(keyParams);
+                    wallet.saveToFile(walletFile);
+                }
+                
+                
+            }
+            catch (Exception e)
+            {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * save your wallet
+     */
+    public void saveWallet()
+    {
+        if(wallet != null)
+        {
+            try
+            {
+                wallet.saveToFile(walletFile);
+            }
+            catch (Exception e)
+            {
+                // TODO: error case
+            }
         }
     }
     
@@ -464,6 +562,12 @@ public class BitcoinManager implements PeerEventListener {
                 {
                     wallet.clearTransactions(0);
                 }
+                wallet.autosaveToFile(walletFile, 1, TimeUnit.SECONDS, null);
+                
+                // dump keys
+                
+                
+                
             }
         } catch (UnreadableWalletException e) {
             // TODO: error case
@@ -551,7 +655,7 @@ public class BitcoinManager implements PeerEventListener {
                 // TODO: check if the isPending thing is required
                 if (!tx.isPending()) return;
                 
-                onTransactionChanged(tx.getHashAsString());
+                onHICoinsReceived(tx.getHashAsString());
             }
         });
         
@@ -606,6 +710,8 @@ public class BitcoinManager implements PeerEventListener {
 	public native void onTransactionFailed();
 	
     public native void onTransactionSuccess(String txid);
+    
+    public native void onHICoinsReceived(String txid);
     
 	public native void onSynchronizationUpdate(double progress, long blockCount, long blockHeight);
 	

@@ -14,7 +14,11 @@ extern NSString * const kHIBitcoinManagerTransactionChangedNotification;        
 extern NSString * const kHIBitcoinManagerStartedNotification;                       //<<< Manager start notification. Informs that manager is now ready to use
 extern NSString * const kHIBitcoinManagerStoppedNotification;                       //<<< Manager stop notification. Informs that manager is now stopped and can't be used anymore
 
-#define kHI_PREPARE_SEND_COINS_DID_FAIL -1
+#define kHI_PREPARE_SEND_COINS_DID_FAIL_ENC -1
+#define kHI_PREPARE_SEND_COINS_DID_FAIL_NOT_ENOUGHT_FUNDS -2
+#define kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN -100
+
+#define kHIBitcoinManagerCoinsReceivedNotification @"kJHIBitcoinManagerCoinsReceivedNotification"
 
 /** HIBitcoinManager is a class responsible for managing all Bitcoin actions app should do 
  *
@@ -66,12 +70,15 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  */
 - (void)start;
 
+
 /** Stops the manager and stores all up-to-date information in data folder
  *
  * One should stop the manager only once. At the shutdown procedure.
  * This is due to bitcoind implementation that uses too many globals.
  */
 - (void)stop;
+
+- (void)resyncBlockchain;
 
 /** Returns transaction definition based on transaction hash
  *
@@ -137,6 +144,12 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
 
 - (NSString *)commitPreparedTransaction;
 
+/** save the wallet to the given wallet store file
+ *
+ * @returns YES if save was successful, NO - otherwise
+ */
+- (BOOL)saveWallet;
+
 /** Encrypts wallet with given passphrase
  *
  * @param passphrase NSString value of the passphrase to encrypt wallet with
@@ -144,6 +157,14 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  * @returns YES if encryption was successful, NO - otherwise
  */
 - (BOOL)encryptWalletWith:(NSString *)passphrase;
+
+/** Removes wallet encryption with given passphrase
+ *
+ * @param passphrase NSString value of the passphrase to decrypt wallet with
+ *
+ * @returns YES if encryption was successful, NO - otherwise
+ */
+- (BOOL)removeEncryption:(NSString *)passphrase;
 
 /** Changes the encryption passphrase for the wallet
  *
@@ -171,7 +192,7 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  *
  * @returns YES if dump was successful. NO - otherwise
  */
-- (BOOL)exportWalletTo:(NSURL *)exportURL;
+- (BOOL)exportWalletWithPassphase:(NSString *)passphrase To:(NSURL *)exportURL;
 
 /** Import wallet from given file URL
  *
