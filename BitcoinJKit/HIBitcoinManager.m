@@ -1014,7 +1014,7 @@ static HIBitcoinManager *_defaultManager = nil;
 //    }
 //    [string deleteCharactersInRange:NSMakeRange(string.length - nullLength, nullLength)];
 
-    [string appendString:@"\u00a0BTC"];
+    [string appendString:@" ฿"];
     return string;
 }
 
