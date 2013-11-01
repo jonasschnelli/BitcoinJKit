@@ -333,7 +333,7 @@ public class BitcoinManager implements PeerEventListener {
             // if there is a passphrase set, try to encrypt
             if(passphrase != null && wallet != null && wallet.isEncrypted())
             {
-                System.err.println("\n\n+++ try to set password\n\n");
+                
                 // set the AES key if the password was set
                 org.spongycastle.crypto.params.KeyParameter keyParams = wallet.getKeyCrypter().deriveKey(passphrase);
                 if(keyParams == null)
@@ -554,10 +554,6 @@ public class BitcoinManager implements PeerEventListener {
             if (walletFile.exists())
             {
                 wallet = Wallet.loadFromFile(walletFile);
-                if(wallet != null && wallet.isEncrypted())
-                {
-                    System.err.println("\n\n+++ wallet is encrypted LOAD\n\n");
-                }
                 if(!chainFile.exists())
                 {
                     wallet.clearTransactions(0);
@@ -577,14 +573,6 @@ public class BitcoinManager implements PeerEventListener {
             // if there is no wallet, create one and add a ec key
             wallet = new Wallet(networkParams);
 
-            if(wallet != null && wallet.isEncrypted())
-            {
-                System.err.println("\n\n+++ wallet is encrypted\n\n");
-            }
-            else
-            {
-                System.err.println("\n\n+++ wallet is NOT encrypted\n\n");
-            }
             wallet.addKey(new ECKey());
             wallet.saveToFile(walletFile);
             //set wallet to autosave
@@ -608,12 +596,16 @@ public class BitcoinManager implements PeerEventListener {
         // Load the block chain, if there is one stored locally. If it's going to be freshly created, checkpoint it.
         boolean chainExistedAlready = chainFile.exists();
         blockStore = new SPVBlockStore(networkParams, chainFile);
-        if (!chainExistedAlready) {
+        if (!chainExistedAlready && oldestKey > 0) {
             File checkpointsFile = new File(dataDirectory + "/" + appName + ".checkpoints");
             if (checkpointsFile.exists()) {
                 System.err.println("+++using the checkpoint file");
                 FileInputStream stream = new FileInputStream(checkpointsFile);
-                CheckpointManager.checkpoint(networkParams, stream, blockStore, oldestKey);
+                try {
+                    CheckpointManager.checkpoint(networkParams, stream, blockStore, oldestKey);
+                }
+                catch (Exception e) {
+                }
             }
         }
      
@@ -657,7 +649,20 @@ public class BitcoinManager implements PeerEventListener {
                 
                 onHICoinsReceived(tx.getHashAsString());
             }
+            
+            @Override
+            public void onWalletChanged(Wallet wallet) {
+                onHIWalletChanged();
+            }
+            
+            @Override
+            public void onTransactionConfidenceChanged(Wallet wallet, Transaction tx)
+            {
+                onTransactionChanged(tx.getHashAsString());
+            }
+            
         });
+        
         
         // inform the app over the current chains height; if there is a chain and already loaded blocks
         if(chain != null)
@@ -712,6 +717,8 @@ public class BitcoinManager implements PeerEventListener {
     public native void onTransactionSuccess(String txid);
     
     public native void onHICoinsReceived(String txid);
+    
+    public native void onHIWalletChanged();
     
 	public native void onSynchronizationUpdate(double progress, long blockCount, long blockHeight);
 	

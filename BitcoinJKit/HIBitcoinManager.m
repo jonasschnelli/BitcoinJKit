@@ -32,6 +32,8 @@
 - (void)onPeerCountChanged:(int)peerCount;
 - (void)onTransactionChanged:(NSString *)txid;
 - (void)onTransactionSucceeded:(NSString *)txid;
+- (void)onCoinsReceived:(NSString *)txid;
+- (void)onWalletChanged;
 - (void)onTransactionFailed;
 - (void)checkBalance:(NSTimer *)timer;
 
@@ -84,6 +86,15 @@ JNIEXPORT void JNICALL onTransactionChanged
     [pool release];
 }
 
+
+JNIEXPORT void JNICALL onWalletChanged
+(JNIEnv *env, jobject thisobject)
+{
+    NSAutoreleasePool *pool = [NSAutoreleasePool new];
+    [[HIBitcoinManager defaultManager] onWalletChanged];
+    [pool release];
+}
+
 JNIEXPORT void JNICALL onCoinsReceived
 (JNIEnv *env, jobject thisobject, jstring txid)
 {
@@ -130,11 +141,12 @@ JNIEXPORT void JNICALL onTransactionFailed
 static JNINativeMethod methods[] = {
     {"onBalanceChanged",        "()V",                                     (void *)&onBalanceChanged},
     {"onTransactionChanged",    "(Ljava/lang/String;)V",                   (void *)&onTransactionChanged},
-    {"onHICoinsReceived",       "(Ljava/lang/String;)V",                         (void *)&onCoinsReceived},
+    {"onHICoinsReceived",       "(Ljava/lang/String;)V",                   (void *)&onCoinsReceived},
+    {"onHIWalletChanged",       "()V",                                     (void *)&onWalletChanged},
     {"onTransactionSuccess",    "(Ljava/lang/String;)V",                   (void *)&onTransactionSucceeded},
     {"onTransactionFailed",     "()V",                                     (void *)&onTransactionFailed},
-    {"onPeerCountChanged",       "(I)V",                                     (void *)&onPeerCountChanged},
-    {"onSynchronizationUpdate", "(DJJ)V",                                    (void *)&onSynchronizationUpdate}
+    {"onPeerCountChanged",       "(I)V",                                   (void *)&onPeerCountChanged},
+    {"onSynchronizationUpdate", "(DJJ)V",                                  (void *)&onSynchronizationUpdate}
 };
 
 NSString * const kHIBitcoinManagerTransactionChangedNotification = @"kJHIBitcoinManagerTransactionChangedNotification";
@@ -949,6 +961,11 @@ static HIBitcoinManager *_defaultManager = nil;
 
 - (void)onTransactionChanged:(NSString *)txid
 {
+    if(_syncProgress < 1.0)
+    {
+        // don't update transactions during the sync process because it will end up in rebuilding the gui muliple times per second
+        return;
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
         [self willChangeValueForKey:@"balance"];
         [[NSNotificationCenter defaultCenter] postNotificationName:kHIBitcoinManagerTransactionChangedNotification object:txid];
@@ -964,6 +981,18 @@ static HIBitcoinManager *_defaultManager = nil;
         [self didChangeValueForKey:@"balance"];
     });
 }
+    
+- (void)onWalletChanged
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // currently do nothing on this because it will use a lot of cpu during the sync
+        
+        //[self willChangeValueForKey:@"walletstate"];
+        //[self didChangeValueForKey:@"walletstate"];
+    });
+}
+    
+    
 
 - (void)onTransactionSucceeded:(NSString *)txid
 {
