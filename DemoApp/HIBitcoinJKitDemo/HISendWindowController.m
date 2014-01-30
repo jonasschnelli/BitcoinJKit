@@ -43,10 +43,10 @@
     // Sanity check first
     NSString *address = _addressField.stringValue;
     CGFloat amount = [_amountField.stringValue floatValue];
-    NSLog(@"Balance %llu and amount %llu", [manager balance], (long long) (amount * 100000000));
+    NSLog(@"Balance %llu and amount %llu", [manager estimatedBalance], (long long) (amount * 100000000));
 
     if (amount <= 0 ||
-        [manager balance] < (long long) (amount * 100000000) ||
+        [manager estimatedBalance] < (long long) (amount * 100000000) ||
         ![manager isAddressValid:address])
     {
         NSAlert *alert = [[NSAlert alloc] init];
@@ -56,7 +56,7 @@
         {
             [alert setInformativeText:@"Your amount is invalid"];
         }
-        else if ([manager balance] < (long long)(amount * 100000000))
+        else if ([manager estimatedBalance] < (long long)(amount * 100000000))
         {
             [alert setInformativeText:@"You can't send more than you own"];
         }

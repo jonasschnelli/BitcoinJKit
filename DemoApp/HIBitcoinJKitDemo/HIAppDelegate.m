@@ -9,6 +9,7 @@
 #import <BitcoinJKit/BitcoinJKit.h>
 #import "HIAppDelegate.h"
 #import "HISendWindowController.h"
+#import <BitcoinJKit/HIBitcoinErrorCodes.h>
 
 @interface HIAppDelegate ()
 {
@@ -41,7 +42,7 @@
                   options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew
                   context:NULL];
     [_manager addObserver:self
-               forKeyPath:@"balance"
+               forKeyPath:@"estimatedBalance"
                   options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew
                   context:NULL];
     [_manager addObserver:self
@@ -62,7 +63,15 @@
     _manager.dataURL = [[applicationSupport lastObject] URLByAppendingPathComponent:@"BitcoinKitDemo"];
     // _manager.enableMining = YES;
 
-    [_manager start:NULL];
+    NSError *startError=nil;
+    [_manager start:&startError];
+    
+    if(startError.code == kHIBitcoinManagerNoWallet)
+    {
+        NSError *error=nil;
+        [_manager createWallet:&error];
+        [_manager start:&startError];
+    }
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(transactionUpdated:)
@@ -105,7 +114,7 @@
         }
         else if ([keyPath isEqual:@"balance"])
         {
-            _balanceLabel.stringValue = [NSString stringWithFormat:@"%.4f ฿", (CGFloat) _manager.balance / 100000000.0];
+            _balanceLabel.stringValue = [NSString stringWithFormat:@"%.4f ฿", (CGFloat) _manager.estimatedBalance / 100000000.0];
         }
         else if ([keyPath isEqual:@"isRunning"])
         {
@@ -134,7 +143,7 @@
                 [_progressIndicator setIndeterminate:YES];
             }
 
-            if (_manager.syncProgress == 10000)
+            if (_manager.syncProgress == 1.0)
             {
                 [_progressIndicator stopAnimation:self];
                 _stateLabel.stringValue = @"Synchronized";
@@ -215,8 +224,10 @@ objectValueForTableColumn:(NSTableColumn *)aTableColumn
     {
         NSAlert *alert = [[NSAlert alloc] init];
         [alert setMessageText:@"Wallet export"];
-
-        if ([_manager exportWalletTo:sp.URL])
+        NSError *error = nil;
+        [_manager exportWalletTo:sp.URL error:&error];
+        
+        if (!error)
         {
             [alert setInformativeText:@"Export has been successful"];
         }
@@ -226,32 +237,6 @@ objectValueForTableColumn:(NSTableColumn *)aTableColumn
         }
 
         [alert addButtonWithTitle:@"Ok"];        
-        [alert runModal];
-    }
-}
-
-- (IBAction)importWalletClicked:(NSButton *)sender
-{
-    NSOpenPanel *op = [NSOpenPanel openPanel];
-    op.title = @"Select dump file to import";
-    op.prompt = @"Import";
-    op.allowedFileTypes = @[@"dat"];
-
-    if ([op runModal] == NSFileHandlingPanelOKButton)
-    {
-        NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"Wallet import"];
-
-        if ([_manager importWalletFrom:op.URL])
-        {
-            [alert setInformativeText:@"Import has been successful"];
-        }
-        else
-        {
-            [alert setInformativeText:@"Import has failed"];
-        }
-
-        [alert addButtonWithTitle:@"Ok"];
         [alert runModal];
     }
 }
