@@ -211,6 +211,17 @@ public class BitcoinManager implements Thread.UncaughtExceptionHandler, Transact
 
         startBlockchain();
     }
+    
+    public String addAddress()
+    {
+        boolean couldCreateKey = wallet.addKey(new ECKey());
+        if(couldCreateKey)
+        {
+            ECKey ecKey = wallet.getKeys().get(wallet.getKeys().size()-1);
+            return ecKey.toAddress(networkParams).toString();
+        }
+        return null;
+    }
 
     private File getBlockchainFile()
     {
@@ -412,6 +423,22 @@ public class BitcoinManager implements Thread.UncaughtExceptionHandler, Transact
     {
         ECKey ecKey = wallet.getKeys().get(0);
         return ecKey.toAddress(networkParams).toString();
+    }
+    
+    public String getAllWalletAddresses()
+    {
+        StringBuffer conns = new StringBuffer();
+        conns.append("[");
+        for(ECKey key: wallet.getKeys())
+        {
+            conns.append("\"" + key.toAddress(networkParams).toString() + "\",");
+        }
+        if(conns.substring(conns.length() -1).equals(","))
+        {
+            conns.deleteCharAt(conns.length() -1);
+        }
+        conns.append("]");
+        return conns.toString();
     }
 
     public String getWalletDebuggingInfo()
@@ -719,7 +746,11 @@ public class BitcoinManager implements Thread.UncaughtExceptionHandler, Transact
 
     public boolean isWalletEncrypted()
     {
-        return wallet.getKeys().get(0).isEncrypted();
+        if(wallet != null)
+        {
+            return wallet.isEncrypted();
+        }
+        return false;
     }
 
     public void changeWalletPassword(char[] oldUtf16Password, char[] newUtf16Password) throws WrongPasswordException

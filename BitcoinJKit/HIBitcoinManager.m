@@ -632,6 +632,14 @@ static NSString * const BitcoinJKitBundleIdentifier = @"com.hive.BitcoinJKit";
     [self zeroCharArray:toCharArray size:(jsize)(toPassword.length / sizeof(jchar))];
 }
 
+- (NSString *)addAddress:(NSError **)error
+{
+     *error = nil;
+    
+    jstring address = [self callObjectMethodWithName:"addAddress" error:error signature:"()Ljava/lang/String;"];
+    return NSStringFromJString(_jniEnv, address);
+}
+
 - (void)zeroCharArray:(jarray)charArray size:(jsize)size {
     jchar zero[size];
     memset(zero, 0, size * sizeof(jchar));
@@ -654,6 +662,18 @@ static NSString * const BitcoinJKitBundleIdentifier = @"com.hive.BitcoinJKit";
 {
     jstring address = [self callObjectMethodWithName:"getWalletAddress" error:NULL signature:"()Ljava/lang/String;"];
     return NSStringFromJString(_jniEnv, address);
+}
+
+- (NSArray *)allWalletAddresses
+{
+    jstring addressesJString = [self callObjectMethodWithName:"getAllWalletAddresses" error:NULL signature:"()Ljava/lang/String;"];
+    if (addressesJString)
+    {
+        NSArray *addresses = [self objectFromJSONString:NSStringFromJString(_jniEnv, addressesJString)];
+        return addresses;
+    }
+    
+    return nil;
 }
 
 - (void)stop
