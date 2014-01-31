@@ -190,7 +190,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\ncd ${SRCROOT}\n\n# Check if we have the classes compiled with avian\n\nif [ ! -f boot.jar ]; then\n\n# Build avian first\n#cd avian\n#export JAVA_HOME=/Library/Java/Home\n#make continuations=true openjdk=${AVIAN_JAVA_JDK} openjdk-src=${AVIAN_JAVA_JDK_SRC}\n#cd ..\n# Prepare bitcoinj building\n\ncd BitcoinJKit/java\n\nif [ ! -d core ]; then\n\n    ln -s ../../bitcoinj/core core\n\nfi\n\n# Build bitcoinj with bitcoinkit bridge\nmvn clean package -Dmaven.test.skip=true\n\n# Ok, now we need to build a boot.jar so we need to combine two jars\ncd ../../\nif [ ! -d tmp ]; then\n    mkdir tmp\nfi\n\n#(cd tmp; jar -xf ../avian/build/darwin-x86_64-continuations-openjdk-src/classpath.jar)\n#(cd tmp; jar -xf ../BitcoinJKit/java/bitcoinkit/target/BitcoinKit-0.11-SNAPSHOT.jar)\n#jar -cvf boot.jar -C tmp .\ncp BitcoinJKit/java/bitcoinkit/target/BitcoinKit-0.11-SNAPSHOT.jar boot.jar\n# Now we have to make it an object, so...\n#avian/build/darwin-x86_64-continuations-openjdk-src/binaryToObject/binaryToObject boot.jar boot-jar.o _binary_boot_jar_start _binary_boot_jar_end darwin x86_64\n\n#rm -rf tmp\n\nfi\n";
+			shellScript = "\ncd ${SRCROOT}\n\n# make sure homebrew bin path is included\nexport PATH=$PATH:/usr/local/bin\n\n# Check if we have the classes compiled with avian\n\nif [ ! -f boot.jar ] || [ \"$(find . -name '*.java' -newer boot.jar)\" ]; then\n\necho \"REBUILDING boot.jar...\"\n\n# Build avian first\n#cd avian\n#export JAVA_HOME=/Library/Java/Home\n#make continuations=true openjdk=${AVIAN_JAVA_JDK} openjdk-src=${AVIAN_JAVA_JDK_SRC}\n#cd ..\n# Prepare bitcoinj building\n\ncd BitcoinJKit/java\n\nif [ ! -d core ]; then\n\nln -s ../../bitcoinj/core core\n\nfi\n\n# Build bitcoinj with bitcoinkit bridge\nmvn clean package -Dmaven.test.skip=true || exit 1\n\n# Ok, now we need to build a boot.jar so we need to combine two jars\ncd ../../\n\n#if [ ! -d tmp ]; then\n#    mkdir tmp\n#fi\n\n#(cd tmp; jar -xf ../avian/build/darwin-x86_64-continuations-openjdk-src/classpath.jar)\n#(cd tmp; jar -xf ../BitcoinJKit/java/bitcoinkit/target/BitcoinKit-0.11-SNAPSHOT.jar)\n#jar -cvf boot.jar -C tmp .\ncp BitcoinJKit/java/bitcoinkit/target/BitcoinKit-*.jar boot.jar\n# Now we have to make it an object, so...\n#avian/build/darwin-x86_64-continuations-openjdk-src/binaryToObject/binaryToObject boot.jar boot-jar.o _binary_boot_jar_start _binary_boot_jar_end darwin x86_64\n\n#rm -rf tmp\n\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -221,7 +221,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
@@ -243,9 +243,9 @@
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.8;
+				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				ONLY_ACTIVE_ARCH = YES;
-				SDKROOT = macosx;
+				SDKROOT = macosx10.9;
 			};
 			name = Debug;
 		};
@@ -253,7 +253,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
@@ -269,8 +269,8 @@
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.8;
-				SDKROOT = macosx;
+				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				SDKROOT = macosx10.9;
 			};
 			name = Release;
 		};

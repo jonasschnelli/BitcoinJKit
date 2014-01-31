@@ -43,6 +43,16 @@
 
 @end
 
+#pragma mark - Helper functions for conversion
+
+NSString * NSStringFromJString(JNIEnv *env, jstring javaString)
+{
+    const char *chars = (*env)->GetStringUTFChars(env, javaString, NULL);
+    NSString *objcString = [NSString stringWithUTF8String:chars];
+    (*env)->ReleaseStringUTFChars(env, javaString, chars);
+    
+    return objcString;
+}
 
 JNIEXPORT void JNICALL onBalanceChanged
 (JNIEnv *env, jobject thisobject)
@@ -137,6 +147,19 @@ JNIEXPORT void JNICALL onTransactionFailed
     [pool release];
 }
 
+JNIEXPORT void JNICALL receiveLogFromJVM(JNIEnv *env, jobject thisobject, jstring fileName, jstring methodName,
+                                         int lineNumber, jint level, jstring msg)
+{
+    NSAutoreleasePool *pool = [NSAutoreleasePool new];
+    const char *fileNameString = (*env)->GetStringUTFChars(env, fileName, NULL);
+    const char *methodNameString = (*env)->GetStringUTFChars(env, methodName, NULL);
+    
+    NSLog(@"%@", (NSString *)NSStringFromJString(env, msg));
+    
+    (*env)->ReleaseStringUTFChars(env, fileName, fileNameString);
+    (*env)->ReleaseStringUTFChars(env, methodName, methodNameString);
+    [pool release];
+}
 
 static JNINativeMethod methods[] = {
     {"onBalanceChanged",        "()V",                                     (void *)&onBalanceChanged},
@@ -256,6 +279,14 @@ static HIBitcoinManager *_defaultManager = nil;
         // We need to create the manager object
         jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
         (*_jniEnv)->RegisterNatives(_jniEnv, mgrClass, methods, sizeof(methods)/sizeof(methods[0]));
+        
+        JNINativeMethod loggerMethod;
+        loggerMethod.name = "receiveLogFromJVM";
+        loggerMethod.signature = "(Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;)V";
+        loggerMethod.fnPtr = &receiveLogFromJVM;
+        
+        jclass loggerClass = [self jClassForClass:@"org/slf4j/impl/CocoaLogger"];
+        (*_jniEnv)->RegisterNatives(_jniEnv, loggerClass, &loggerMethod, 1);
         
         jmethodID constructorM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "<init>", "()V");
         if (constructorM)

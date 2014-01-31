@@ -5,15 +5,18 @@ import static com.google.bitcoin.core.Utils.bytesToHexString;
 import com.google.bitcoin.core.*;
 import com.google.bitcoin.crypto.KeyCrypterException;
 import com.google.bitcoin.crypto.KeyCrypterScrypt;
-import com.google.bitcoin.discovery.DnsDiscovery;
+import com.google.bitcoin.net.discovery.DnsDiscovery;
 import com.google.bitcoin.params.MainNetParams;
 import com.google.bitcoin.params.RegTestParams;
 import com.google.bitcoin.params.TestNet3Params;
 import com.google.bitcoin.script.Script;
 import com.google.bitcoin.store.BlockStore;
+import com.google.bitcoin.store.BlockStoreException;
 import com.google.bitcoin.store.SPVBlockStore;
 import com.google.bitcoin.store.UnreadableWalletException;
+import com.google.bitcoin.store.WalletProtobufSerializer;
 import com.google.bitcoin.utils.BriefLogFormatter;
+import com.google.bitcoin.utils.Threading;
 import com.google.common.util.concurrent.*;
 
 import org.spongycastle.util.encoders.Base64;
@@ -29,8 +32,13 @@ import java.net.InetAddress;
 import java.nio.charset.Charset;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.HashSet;
 
-public class BitcoinManager implements PeerEventListener {
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.impl.CocoaLogger;
+
+public class BitcoinManager implements PeerEventListener, Thread.UncaughtExceptionHandler, TransactionConfidence.Listener {
 	private NetworkParameters networkParams;
 	private Wallet wallet;
 	private String dataDirectory;
@@ -42,9 +50,27 @@ public class BitcoinManager implements PeerEventListener {
     private int blocksToDownload;
     private int storedChainHeight;
     private int broadcastMinTransactions = -1;
+    private HashSet<Transaction> trackedTransactions;
     
     private Wallet.SendRequest pendingSendRequest;
     
+    private static final Logger log = LoggerFactory.getLogger(BitcoinManager.class);
+    
+    /* --- Initialization & configuration --- */
+    
+    public BitcoinManager()
+    {
+        Threading.uncaughtExceptionHandler = this;
+        trackedTransactions = new HashSet<Transaction>();
+        ((CocoaLogger) log).setLevel(CocoaLogger.HILoggerLevelDebug);
+    }
+    
+    /* --- Thread.UncaughtExceptionHandler --- */
+    
+    public void uncaughtException(Thread thread, Throwable exception)
+    {
+        onException(exception);
+    }
     
     
 	public void setTestingNetwork(boolean testing)
@@ -107,8 +133,6 @@ public class BitcoinManager implements PeerEventListener {
 	{
         if(type == 0)
         {
-            Wallet.CoinSelector coinSelector = new Wallet.AllowUnconfirmedCoinSelector();
-            
             return wallet.getBalance(Wallet.BalanceType.AVAILABLE);
         }
         else
@@ -342,15 +366,9 @@ public class BitcoinManager implements PeerEventListener {
                 }
                 pendingSendRequest.aesKey = keyParams;
             }
-            if (!wallet.completeTx(pendingSendRequest))
-            {
-              // return empty string as sign of a failed transaction preparation
-              return "-100"; // = unknown error
-            }
-            else
-            {
-              return pendingSendRequest.fee.toString();
-          }
+            wallet.completeTx(pendingSendRequest);
+            return pendingSendRequest.fee.toString();
+            
         } catch (KeyCrypterException e) {
             e.printStackTrace();
             
@@ -359,10 +377,18 @@ public class BitcoinManager implements PeerEventListener {
             }
             
             return "-1"; // = crypter error
-        } catch (Exception e) {
+        }
+        catch (InsufficientMoneyException e)
+        {
+            e.printStackTrace();
+            return "-100"; // = unknown error
+        }
+        catch (Exception e)
+        {
             e.printStackTrace();
            return "-100"; // = unknown error
         }
+        
 	}
     
     public boolean isAddressValid(String address)
@@ -726,6 +752,8 @@ public class BitcoinManager implements PeerEventListener {
 	
 	public native void onBalanceChanged();
 	
+    public native void onException(Throwable exception);
+    
 	/* Implementing peer listener */
 	public void onBlocksDownloaded(Peer peer, Block block, int blocksLeft)
 	{
@@ -771,6 +799,52 @@ public class BitcoinManager implements PeerEventListener {
 	{
 		
 	}
+    
+    /* --- TransactionConfidence.Listener --- */
+    
+    private void trackPendingTransactions(Wallet wallet)
+    {
+        // we won't receive onCoinsReceived again for transactions that we already know about,
+        // so we need to listen to confidence changes again after a restart
+        for (Transaction tx : wallet.getPendingTransactions())
+        {
+            trackTransaction(tx);
+        }
+    }
+    
+    private void trackTransaction(Transaction tx)
+    {
+        if (!trackedTransactions.contains(tx))
+        {
+            log.debug("Tracking transaction " + tx.getHashAsString());
+            
+            tx.getConfidence().addEventListener(this);
+            trackedTransactions.add(tx);
+        }
+    }
+    
+    private void stopTrackingTransaction(Transaction tx)
+    {
+        if (trackedTransactions.contains(tx))
+        {
+            log.debug("Stopped tracking transaction " + tx.getHashAsString());
+            
+            tx.getConfidence().removeEventListener(this);
+            trackedTransactions.remove(tx);
+        }
+    }
+    
+    public void onConfidenceChanged(final Transaction tx, TransactionConfidence.Listener.ChangeReason reason)
+    {
+        if (!tx.isPending())
+        {
+            // coins were confirmed (appeared in a block) - we don't need to listen anymore
+            stopTrackingTransaction(tx);
+        }
+        
+        // update the UI
+        onTransactionChanged(tx.getHashAsString());
+    }
 	
 	public List<Message> getData(Peer peer, GetDataMessage m)
 	{
