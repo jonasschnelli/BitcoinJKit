@@ -1,1 +1,0 @@
-cp target/BitcoinKit-0.11-SNAPSHOT.jar ../../../boot.jar
