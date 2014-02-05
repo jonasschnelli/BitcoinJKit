@@ -10,6 +10,9 @@
 
 #import <Foundation/Foundation.h>
 
+// define the nanobtc type
+typedef int64_t nanobtc_t;
+
 extern NSString * const kHIBitcoinManagerTransactionChangedNotification;            //<<< Transaction list update notification. Sent object is a NSString representation of the updated hash
 extern NSString * const kHIBitcoinManagerStartedNotification;                       //<<< Manager start notification. Informs that manager is now ready to use
 extern NSString * const kHIBitcoinManagerStoppedNotification;                       //<<< Manager stop notification. Informs that manager is now stopped and can't be used anymore
@@ -30,10 +33,9 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
 @interface HIBitcoinManager : NSObject
 
 @property (nonatomic, copy) NSString *appSupportDirectoryIdentifier;                                         //<<< Specifies the support directory identifier. Warning! All changes to it has to be performed BEFORE start.
-@property (nonatomic, copy) NSString *appName;                                         //<<< Specifies an App Name. The name will be used for data file/folder creation. Warning! All changes to it has to be performed BEFORE start.
-@property (nonatomic, copy) NSURL *dataURL;                                         //<<< Specifies an URL path to a directory where HIBitcoinManager should store its data. Warning! All changes to it has to be performed BEFORE start.
-@property (nonatomic, assign) BOOL testingNetwork;                                  //<<< Specifies if a manager is running on the testing network. Warning! All changes to it has to be performed BEFORE start.
-@property (nonatomic, assign) BOOL enableMining;                                    //<<< Specifies if a manager should try to mine bticoins. Warning! All changes to it has to be performed BEFORE start.
+@property (nonatomic, copy) NSString *appName;                                         //<<< Specifies an App Name. The name will be used for data file/folder creation. Warning! All changes to it has to be performed BEFORE initialize.
+@property (nonatomic, copy) NSURL *dataURL;                                         //<<< Specifies an URL path to a directory where HIBitcoinManager should store its data. Warning! All changes to it has to be performed BEFORE initialize.
+@property (nonatomic, assign) BOOL testingNetwork;                                  //<<< Specifies if a manager is running on the testing network. Warning! All changes to it has to be performed BEFORE initialize.
 @property (nonatomic, readonly) NSUInteger connections;                             //<<< Currently active connections to bitcoin network
 @property (nonatomic, readonly) BOOL isRunning;                                     //<<< Flag indicating if NPBitcoinManager is currently running and connecting with the network
 @property (nonatomic, readonly) uint64_t balance;                                   //<<< Actual balance of the wallet
@@ -50,8 +52,19 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
 @property (nonatomic, readonly, getter = isWalletLocked) BOOL isWalletLocked;       //<<< Returns YES if wallet is currently locked. NO - otherwise
 @property (nonatomic, readonly, getter = transactionCount) NSUInteger transactionCount; //<<< Returns global transaction cound for current wallet
 @property (nonatomic, readonly, getter = lastBlockCreationTime) NSDate* lastBlockCreationTime; //<<< Returns the creation time of the last block in the SPVBlockStore
-@property (nonatomic, copy) NSString *proxyAddress;                                 //<<< Proxy server in address:port format. Default is nil (no proxy). Warning! All changes to it has to be performed BEFORE start.
-@property (nonatomic, assign) BOOL disableListening;                                //<<< Flag disabling listening on public IP address. To be used i.e. with tor proxy not to reveal real IP address. Warning! All changes to it has to be performed BEFORE start.
+@property (nonatomic, assign) BOOL disableListening;                                //<<< Flag disabling listening on public IP address. To be used i.e. with tor proxy not to reveal real IP address. Warning! All changes to it has to be performed BEFORE initialize.
+
+// Block that will be called when an exception is thrown on a background thread in JVM (e.g. while processing an
+// incoming transaction or other blockchain update). If not set, the exception will just be thrown and will crash your
+// app unless you install a global uncaught exception handler.
+// Note: exceptions that are thrown while processing calls made from the Cocoa side will ignore this handler and will
+// simply be thrown directly in the same thread.
+@property (nonatomic, copy) void(^exceptionHandler)(NSException *exception);
+
+@property (nonatomic, copy, readonly) NSString *decimalSeparator;
+@property (nonatomic, copy, readonly) NSArray *availableFormats;
+@property (nonatomic, copy) NSString *preferredFormat;
+@property (nonatomic, copy) NSLocale *locale;
 
 /** Class method returning application singleton to the manager.
  *
@@ -68,8 +81,9 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  *
  * One should start the manager only once. After configuring the singleton.
  */
-- (void)start;
-
+- (void)initialize:(NSError **)error;
+- (void)loadWallet:(NSError **)error;
+- (void)startBlockchain:(NSError **)error;
 
 /** Stops the manager and stores all up-to-date information in data folder
  *
@@ -78,7 +92,7 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  */
 - (void)stop;
 
-- (void)resyncBlockchain;
+- (void)resyncBlockchain:(NSError **)error;
 
 /** Returns transaction definition based on transaction hash
  *
@@ -124,6 +138,16 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  */
 - (BOOL)isAddressValid:(NSString *)address;
 
+/** Creates a new wallet protected with a password.
+ *
+ * Only call this if start returned kHIBitcoinManagerNoWallet.
+ * It will fail if a wallet already exists.
+ *
+ * @param password The user password as an UTF-16-encoded string.
+ */
+- (void)createWalletWithPassword:(NSData *)password
+                           error:(NSError **)error;
+    
 /** Creates a new ECKey
  *
  * @returns the new address string or nil if failed
@@ -156,7 +180,9 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  *
  * @returns YES if encryption was successful, NO - otherwise
  */
-- (BOOL)encryptWalletWith:(NSString *)passphrase;
+- (void)changeWalletPassword:(NSData *)fromPassword
+                  toPassword:(NSData *)toPassword
+                       error:(NSError **)error;
 
 /** Removes wallet encryption with given passphrase
  *
@@ -208,7 +234,8 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  *
  * @returns YES if import was successful. NO - otherwise
  */
-- (NSString *)formatNanobtc:(NSInteger)nanoBtc;
+- (NSString *)formatNanobtc:(nanobtc_t)nanoBtc;
+- (NSString *)formatNanobtc:(nanobtc_t)nanoBtcValue withDesignator:(BOOL)designator;
 
 /** Checks if the wallet is encryped
  *

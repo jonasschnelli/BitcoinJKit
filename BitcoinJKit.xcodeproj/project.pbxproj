@@ -14,6 +14,10 @@
 		D958B0BC17A2A40600B0EDD5 /* HIBitcoinManager.m in Sources */ = {isa = PBXBuildFile; fileRef = D958B0BA17A2A40600B0EDD5 /* HIBitcoinManager.m */; };
 		D958B0BE17A2A41A00B0EDD5 /* BitcoinJKit.h in Headers */ = {isa = PBXBuildFile; fileRef = D958B0A617A29B0500B0EDD5 /* BitcoinJKit.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E56F90B917ECC48600135193 /* HIBitcoinManager.h in Headers */ = {isa = PBXBuildFile; fileRef = E56F90B817ECC48600135193 /* HIBitcoinManager.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E5E45294189F84B600FAC936 /* HIBitcoinErrorCodes.h in Headers */ = {isa = PBXBuildFile; fileRef = E5E45292189F84B600FAC936 /* HIBitcoinErrorCodes.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		E5E45295189F84B600FAC936 /* HIBitcoinErrorCodes.m in Sources */ = {isa = PBXBuildFile; fileRef = E5E45293189F84B600FAC936 /* HIBitcoinErrorCodes.m */; };
+		E5E45298189F84F900FAC936 /* HIBitcoinInternalErrorCodes.h in Headers */ = {isa = PBXBuildFile; fileRef = E5E45296189F84F900FAC936 /* HIBitcoinInternalErrorCodes.h */; };
+		E5E45299189F84F900FAC936 /* HIBitcoinInternalErrorCodes.m in Sources */ = {isa = PBXBuildFile; fileRef = E5E45297189F84F900FAC936 /* HIBitcoinInternalErrorCodes.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +35,10 @@
 		D958B0A617A29B0500B0EDD5 /* BitcoinJKit.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BitcoinJKit.h; sourceTree = "<group>"; };
 		D958B0BA17A2A40600B0EDD5 /* HIBitcoinManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = HIBitcoinManager.m; sourceTree = "<group>"; };
 		E56F90B817ECC48600135193 /* HIBitcoinManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HIBitcoinManager.h; sourceTree = "<group>"; };
+		E5E45292189F84B600FAC936 /* HIBitcoinErrorCodes.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HIBitcoinErrorCodes.h; sourceTree = "<group>"; };
+		E5E45293189F84B600FAC936 /* HIBitcoinErrorCodes.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = HIBitcoinErrorCodes.m; sourceTree = "<group>"; };
+		E5E45296189F84F900FAC936 /* HIBitcoinInternalErrorCodes.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HIBitcoinInternalErrorCodes.h; sourceTree = "<group>"; };
+		E5E45297189F84F900FAC936 /* HIBitcoinInternalErrorCodes.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = HIBitcoinInternalErrorCodes.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -91,6 +99,10 @@
 				D958B0A617A29B0500B0EDD5 /* BitcoinJKit.h */,
 				E56F90B817ECC48600135193 /* HIBitcoinManager.h */,
 				D958B0BA17A2A40600B0EDD5 /* HIBitcoinManager.m */,
+				E5E45292189F84B600FAC936 /* HIBitcoinErrorCodes.h */,
+				E5E45293189F84B600FAC936 /* HIBitcoinErrorCodes.m */,
+				E5E45296189F84F900FAC936 /* HIBitcoinInternalErrorCodes.h */,
+				E5E45297189F84F900FAC936 /* HIBitcoinInternalErrorCodes.m */,
 				D958B0A017A29B0500B0EDD5 /* Supporting Files */,
 			);
 			path = BitcoinJKit;
@@ -114,6 +126,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				D958B0BE17A2A41A00B0EDD5 /* BitcoinJKit.h in Headers */,
+				E5E45298189F84F900FAC936 /* HIBitcoinInternalErrorCodes.h in Headers */,
+				E5E45294189F84B600FAC936 /* HIBitcoinErrorCodes.h in Headers */,
 				E56F90B917ECC48600135193 /* HIBitcoinManager.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -199,7 +213,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E5E45299189F84F900FAC936 /* HIBitcoinInternalErrorCodes.m in Sources */,
 				D958B0BC17A2A40600B0EDD5 /* HIBitcoinManager.m in Sources */,
+				E5E45295189F84B600FAC936 /* HIBitcoinErrorCodes.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

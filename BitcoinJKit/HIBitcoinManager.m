@@ -9,6 +9,9 @@
 //
 
 #import "HIBitcoinManager.h"
+#import "HIBitcoinErrorCodes.h"
+#import "HIBitcoinInternalErrorCodes.h"
+
 #import <JavaVM/jni.h>
 
 @interface HIBitcoinManager ()
@@ -17,6 +20,7 @@
     JNIEnv *_jniEnv;
     JavaVMInitArgs _vmArgs;
     jobject _managerObject;
+    jclass _managerClass;
     NSDateFormatter *_dateFormatter;
     BOOL _sending;
     
@@ -25,6 +29,8 @@
     
     NSString *_appSupportDirectoryIdentifier;
 }
+
+@property (nonatomic, strong) NSArray *availableBitcoinFormats;
 
 - (jclass)jClassForClass:(NSString *)class;
 - (void)onBalanceChanged;
@@ -35,6 +41,7 @@
 - (void)onCoinsReceived:(NSString *)txid;
 - (void)onWalletChanged;
 - (void)onTransactionFailed;
+- (void)handleJavaException:(jthrowable)exception useExceptionHandler:(BOOL)useHandler error:(NSError **)returnedError;
 - (void)checkBalance:(NSTimer *)timer;
 
 - (uint64_t)balance:(int)type;
@@ -54,8 +61,20 @@ NSString * NSStringFromJString(JNIEnv *env, jstring javaString)
     return objcString;
 }
 
-JNIEXPORT void JNICALL onBalanceChanged
-(JNIEnv *env, jobject thisobject)
+jstring JStringFromNSString(JNIEnv *env, NSString *string)
+{
+    return (*env)->NewStringUTF(env, [string UTF8String]);
+}
+
+jarray JCharArrayFromNSData(JNIEnv *env, NSData *data)
+{
+    jsize length = (jsize)(data.length / sizeof(jchar));
+    jcharArray charArray = (*env)->NewCharArray(env, length);
+    (*env)->SetCharArrayRegion(env, charArray, 0, length, data.bytes);
+    return charArray;
+}
+
+JNIEXPORT void JNICALL onBalanceChanged (JNIEnv *env, jobject thisobject)
 {
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     [[HIBitcoinManager defaultManager] onBalanceChanged];
@@ -63,24 +82,21 @@ JNIEXPORT void JNICALL onBalanceChanged
 }
 
 
-JNIEXPORT void JNICALL onPeerCountChanged
-(JNIEnv *env, jobject thisobject, jint peerCount)
+JNIEXPORT void JNICALL onPeerCountChanged (JNIEnv *env, jobject thisobject, jint peerCount)
 {
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     [[HIBitcoinManager defaultManager] onPeerCountChanged:(int)peerCount];
     [pool release];
 }
 
-JNIEXPORT void JNICALL onSynchronizationUpdate
-(JNIEnv *env, jobject thisobject, jdouble progress, jlong blockCount, jlong totalBlocks)
+JNIEXPORT void JNICALL onSynchronizationUpdate (JNIEnv *env, jobject thisobject, jdouble progress, jlong blockCount, jlong totalBlocks)
 {
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     [[HIBitcoinManager defaultManager] onSynchronizationChanged:(double)progress blockCount:blockCount totalBlocks:totalBlocks];
     [pool release];
 }
 
-JNIEXPORT void JNICALL onTransactionChanged
-(JNIEnv *env, jobject thisobject, jstring txid)
+JNIEXPORT void JNICALL onTransactionChanged (JNIEnv *env, jobject thisobject, jstring txid)
 {
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     if (txid)
@@ -97,16 +113,14 @@ JNIEXPORT void JNICALL onTransactionChanged
 }
 
 
-JNIEXPORT void JNICALL onWalletChanged
-(JNIEnv *env, jobject thisobject)
+JNIEXPORT void JNICALL onWalletChanged (JNIEnv *env, jobject thisobject)
 {
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     [[HIBitcoinManager defaultManager] onWalletChanged];
     [pool release];
 }
 
-JNIEXPORT void JNICALL onCoinsReceived
-(JNIEnv *env, jobject thisobject, jstring txid)
+JNIEXPORT void JNICALL onCoinsReceived (JNIEnv *env, jobject thisobject, jstring txid)
 {
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     if (txid)
@@ -122,8 +136,7 @@ JNIEXPORT void JNICALL onCoinsReceived
     [pool release];
 }
 
-JNIEXPORT void JNICALL onTransactionSucceeded
-(JNIEnv *env, jobject thisobject, jstring txid)
+JNIEXPORT void JNICALL onTransactionSucceeded (JNIEnv *env, jobject thisobject, jstring txid)
 {
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     if (txid)
@@ -138,8 +151,14 @@ JNIEXPORT void JNICALL onTransactionSucceeded
     [pool release];
 }
 
-JNIEXPORT void JNICALL onTransactionFailed
-(JNIEnv *env, jobject thisobject)
+JNIEXPORT void JNICALL onException(JNIEnv *env, jobject thisobject, jthrowable jexception)
+{
+    NSAutoreleasePool *pool = [NSAutoreleasePool new];
+    [[HIBitcoinManager defaultManager] handleJavaException:jexception useExceptionHandler:YES error:NULL];
+    [pool release];
+}
+
+JNIEXPORT void JNICALL onTransactionFailed (JNIEnv *env, jobject thisobject)
 {
     NSAutoreleasePool *pool = [NSAutoreleasePool new];
     [[HIBitcoinManager defaultManager] onTransactionFailed];
@@ -191,7 +210,6 @@ static HIBitcoinManager *_defaultManager = nil;
 @synthesize syncProgress = _syncProgress;
 @synthesize peerCount = _peerCount;
 @synthesize testingNetwork = _testingNetwork;
-@synthesize enableMining = _enableMining;
 @synthesize walletAddress;
 @synthesize currentBlockCount=_currentBlockCount;
 @synthesize totalBlocks=_totalBlocks;
@@ -221,6 +239,273 @@ static HIBitcoinManager *_defaultManager = nil;
     return cls;
 }
 
+- (jmethodID)jMethodWithName:(char *)name signature:(char *)signature
+{
+    jmethodID method = (*_jniEnv)->GetMethodID(_jniEnv, _managerClass, name, signature);
+    
+    if (method == NULL)
+    {
+        @throw [NSException exceptionWithName:@"Java exception"
+                                       reason:[NSString stringWithFormat:@"Method not found: %s (%s)", name, signature]
+                                     userInfo:nil];
+    }
+    
+    return method;
+}
+
+- (BOOL)callBooleanMethodWithName:(char *)name signature:(char *)signature, ...
+{
+    jmethodID method = [self jMethodWithName:name signature:signature];
+    
+    va_list args;
+    va_start(args, signature);
+    jboolean result = (*_jniEnv)->CallBooleanMethodV(_jniEnv, _managerObject, method, args);
+    va_end(args);
+    
+    [self handleJavaExceptions:NULL];
+    
+    return result;
+}
+
+- (int)callIntegerMethodWithName:(char *)name signature:(char *)signature, ...
+{
+    jmethodID method = [self jMethodWithName:name signature:signature];
+    
+    va_list args;
+    va_start(args, signature);
+    jint result = (*_jniEnv)->CallIntMethodV(_jniEnv, _managerObject, method, args);
+    va_end(args);
+    
+    [self handleJavaExceptions:NULL];
+    
+    return result;
+}
+
+- (long)callLongMethodWithName:(char *)name signature:(char *)signature, ...
+{
+    jmethodID method = [self jMethodWithName:name signature:signature];
+    
+    va_list args;
+    va_start(args, signature);
+    jlong result = (*_jniEnv)->CallLongMethodV(_jniEnv, _managerObject, method, args);
+    va_end(args);
+    
+    [self handleJavaExceptions:NULL];
+    
+    return result;
+}
+
+- (jobject)callObjectMethodWithName:(char *)name error:(NSError **)error signature:(char *)signature, ...
+{
+    jmethodID method = [self jMethodWithName:name signature:signature];
+    
+    va_list args;
+    va_start(args, signature);
+    jobject result = (*_jniEnv)->CallObjectMethodV(_jniEnv, _managerObject, method, args);
+    va_end(args);
+    
+    [self handleJavaExceptions:error];
+    
+    return result;
+}
+
+- (void)callVoidMethodWithName:(char *)name error:(NSError **)error signature:(char *)signature, ...
+{
+    jmethodID method = [self jMethodWithName:name signature:signature];
+    
+    va_list args;
+    va_start(args, signature);
+    (*_jniEnv)->CallVoidMethodV(_jniEnv, _managerObject, method, args);
+    va_end(args);
+    
+    [self handleJavaExceptions:error];
+}
+
+
+- (void)handleJavaExceptions:(NSError **)error
+{
+    if ((*_jniEnv)->ExceptionCheck(_jniEnv))
+    {
+        // get the exception object
+        jthrowable exception = (*_jniEnv)->ExceptionOccurred(_jniEnv);
+        
+        [self handleJavaException:exception useExceptionHandler:NO error:error];
+    }
+    else if (error)
+    {
+        *error = nil;
+    }
+}
+
+- (void)handleJavaException:(jthrowable)exception useExceptionHandler:(BOOL)useHandler error:(NSError **)returnedError
+{
+    BOOL callerWantsToHandleErrors = returnedError != nil;
+    
+    if (callerWantsToHandleErrors)
+    {
+        *returnedError = nil;
+    }
+    
+    // exception has to be cleared if it exists
+    (*_jniEnv)->ExceptionClear(_jniEnv);
+    
+    // try to get exception details from Java
+    // note: we need to do this on the main thread - if this is called from a background thread,
+    // the toString() call returns nil and throws a new exception (java.lang.StackOverflowException)
+    dispatch_block_t processException = ^{
+        NSError *error = [NSError errorWithDomain:@"BitcoinKit"
+                                             code:[self errorCodeForJavaException:exception]
+                                         userInfo:[self createUserInfoForJavaException:exception]];
+        
+        NSString *exceptionClass = [self getJavaExceptionClassName:exception];
+        
+        NSLog(@"Java exception caught (%@): %@\n%@",
+              exceptionClass,
+              error.userInfo[NSLocalizedFailureReasonErrorKey],
+              error.userInfo[@"stackTrace"] ?: @"");
+        
+        if (callerWantsToHandleErrors && error.code != kHIBitcoinManagerUnexpectedError)
+        {
+            *returnedError = error;
+        }
+        else
+        {
+            NSException *exception = [NSException exceptionWithName:@"Java exception"
+                                                             reason:error.userInfo[NSLocalizedFailureReasonErrorKey]
+                                                           userInfo:error.userInfo];
+            if (useHandler && self.exceptionHandler)
+            {
+                self.exceptionHandler(exception);
+            }
+            else
+            {
+                @throw exception;
+            }
+        }
+    };
+    
+    if (dispatch_get_current_queue() != dispatch_get_main_queue())
+    {
+        // run the above code synchronously on the main thread,
+        // otherwise Java GC can clean up the exception object and we get a memory access error
+        dispatch_sync(dispatch_get_main_queue(), processException);
+    }
+    else
+    {
+        // if this is the main thread, we can't use dispatch_sync or the whole thing will lock up
+        processException();
+    }
+}
+
+- (NSInteger)errorCodeForJavaException:(jthrowable)exception
+{
+    NSString *exceptionClass = [self getJavaExceptionClassName:exception];
+    if ([exceptionClass isEqual:@"com.google.bitcoin.store.UnreadableWalletException"])
+    {
+        return kHIBitcoinManagerUnreadableWallet;
+    }
+    else if ([exceptionClass isEqual:@"com.google.bitcoin.store.BlockStoreException"])
+    {
+        return kHIBitcoinManagerBlockStoreError;
+    }
+    else if ([exceptionClass isEqual:@"java.lang.IllegalArgumentException"])
+    {
+        return kHIIllegalArgumentException;
+    }
+    else if ([exceptionClass isEqual:@"com.hive.bitcoinkit.NoWalletException"])
+    {
+        return kHIBitcoinManagerNoWallet;
+    }
+    else if ([exceptionClass isEqual:@"com.hive.bitcoinkit.ExistingWalletException"])
+    {
+        return kHIBitcoinManagerWalletExists;
+    }
+    else if ([exceptionClass isEqual:@"com.hive.bitcoinkit.WrongPasswordException"])
+    {
+        return kHIBitcoinManagerWrongPassword;
+    }
+    else
+    {
+        return kHIBitcoinManagerUnexpectedError;
+    }
+}
+
+- (NSString *)getJavaExceptionClassName:(jthrowable)exception
+{
+    jclass exceptionClass = (*_jniEnv)->GetObjectClass(_jniEnv, exception);
+    jmethodID getClassMethod = (*_jniEnv)->GetMethodID(_jniEnv, exceptionClass, "getClass", "()Ljava/lang/Class;");
+    jobject classObject = (*_jniEnv)->CallObjectMethod(_jniEnv, exception, getClassMethod);
+    jobject class = (*_jniEnv)->GetObjectClass(_jniEnv, classObject);
+    jmethodID getNameMethod = (*_jniEnv)->GetMethodID(_jniEnv, class, "getName", "()Ljava/lang/String;");
+    jstring name = (*_jniEnv)->CallObjectMethod(_jniEnv, exceptionClass, getNameMethod);
+    return NSStringFromJString(_jniEnv, name);
+}
+
+- (NSDictionary *)createUserInfoForJavaException:(jthrowable)exception
+{
+    NSMutableDictionary *userInfo = [NSMutableDictionary new];
+    userInfo[NSLocalizedFailureReasonErrorKey] = [self getJavaExceptionMessage:exception] ?: @"Java VM raised an exception";
+    
+    NSString *stackTrace = [self getJavaExceptionStackTrace:exception];
+    if (stackTrace)
+    {
+        userInfo[@"stackTrace"] = stackTrace;
+    }
+    return userInfo;
+}
+
+- (NSString *)getJavaExceptionMessage:(jthrowable)exception
+{
+    jclass exceptionClass = (*_jniEnv)->GetObjectClass(_jniEnv, exception);
+    
+    if (exceptionClass)
+    {
+        jmethodID toStringMethod = (*_jniEnv)->GetMethodID(_jniEnv, exceptionClass, "toString", "()Ljava/lang/String;");
+        
+        if (toStringMethod)
+        {
+            jstring description = (*_jniEnv)->CallObjectMethod(_jniEnv, exception, toStringMethod);
+            
+            if ((*_jniEnv)->ExceptionCheck(_jniEnv))
+            {
+                (*_jniEnv)->ExceptionDescribe(_jniEnv);
+                (*_jniEnv)->ExceptionClear(_jniEnv);
+            }
+            
+            if (description)
+            {
+                return NSStringFromJString(_jniEnv, description);
+            }
+        }
+    }
+    
+    return nil;
+}
+
+- (NSString *)getJavaExceptionStackTrace:(jthrowable)exception
+{
+    jmethodID stackTraceMethod = (*_jniEnv)->GetMethodID(_jniEnv, _managerClass, "getExceptionStackTrace",
+                                                         "(Ljava/lang/Throwable;)Ljava/lang/String;");
+    
+    if (stackTraceMethod)
+    {
+        jstring stackTrace = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, stackTraceMethod, exception);
+        
+        if ((*_jniEnv)->ExceptionCheck(_jniEnv))
+        {
+            (*_jniEnv)->ExceptionDescribe(_jniEnv);
+            (*_jniEnv)->ExceptionClear(_jniEnv);
+        }
+        
+        if (stackTrace)
+        {
+            return NSStringFromJString(_jniEnv, stackTrace);
+        }
+    }
+    
+    return nil;
+}
+
 - (void)setAppSupportDirectoryIdentifier:(NSString *)appSupportDirectoryIdentifier
 {
     if(_appSupportDirectoryIdentifier != appSupportDirectoryIdentifier)
@@ -238,11 +523,32 @@ static HIBitcoinManager *_defaultManager = nil;
     return _appSupportDirectoryIdentifier;
 }
 
+- (void)createWalletWithPassword:(NSData *)password
+                           error:(NSError **)error
+{
+    jarray charArray = JCharArrayFromNSData(_jniEnv, password);
+    
+    *error = nil;
+    [self callVoidMethodWithName:"createWallet"
+                           error:error
+                       signature:"([C)V", charArray];
+    
+    [self zeroCharArray:charArray size:(jsize)(password.length / sizeof(jchar))];
+    
+    if (!*error)
+    {
+        [self didStart];
+    }
+}
+    
 - (id)init
 {
     self = [super init];
     if (self)
     {
+        self.locale = [NSLocale currentLocale];
+        self.availableBitcoinFormats = @[@"BTC", @"mBTC", @"µBTC"];;
+        
         self.appSupportDirectoryIdentifier   = kHIDefaultAppSupportIdentifier;
         self.appName                         = kHIDefaultAppName;
 
@@ -254,7 +560,6 @@ static HIBitcoinManager *_defaultManager = nil;
         _sending = NO;
         _syncProgress = 0.0;
         _testingNetwork = NO;
-        _enableMining = NO;
         _isRunning = NO;
         
         self.dataURL = [[[[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] lastObject] URLByAppendingPathComponent:self.appSupportDirectoryIdentifier];
@@ -277,8 +582,8 @@ static HIBitcoinManager *_defaultManager = nil;
         
         
         // We need to create the manager object
-        jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
-        (*_jniEnv)->RegisterNatives(_jniEnv, mgrClass, methods, sizeof(methods)/sizeof(methods[0]));
+        _managerClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
+        (*_jniEnv)->RegisterNatives(_jniEnv, _managerClass, methods, sizeof(methods)/sizeof(methods[0]));
         
         JNINativeMethod loggerMethod;
         loggerMethod.name = "receiveLogFromJVM";
@@ -288,10 +593,10 @@ static HIBitcoinManager *_defaultManager = nil;
         jclass loggerClass = [self jClassForClass:@"org/slf4j/impl/CocoaLogger"];
         (*_jniEnv)->RegisterNatives(_jniEnv, loggerClass, &loggerMethod, 1);
         
-        jmethodID constructorM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "<init>", "()V");
+        jmethodID constructorM = (*_jniEnv)->GetMethodID(_jniEnv, _managerClass, "<init>", "()V");
         if (constructorM)
         {
-            _managerObject = (*_jniEnv)->NewObject(_jniEnv, mgrClass, constructorM);
+            _managerObject = (*_jniEnv)->NewObject(_jniEnv, _managerClass, constructorM);
         }
         
         //_balanceChecker = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(checkBalance:) userInfo:nil repeats:YES];
@@ -307,7 +612,7 @@ static HIBitcoinManager *_defaultManager = nil;
     [super dealloc];
 }
 
-- (void)resyncBlockchain
+- (void)resyncBlockchain:(NSError **)error
 {
     NSString *blockchainFilename = [_appName stringByAppendingString:@".spvchain"];
     NSString *blockchainFilePath = [_dataURL.path stringByAppendingPathComponent:blockchainFilename];
@@ -316,10 +621,10 @@ static HIBitcoinManager *_defaultManager = nil;
         [[NSFileManager defaultManager] removeItemAtPath:blockchainFilePath error:nil];
     }
     
-    [self start];
+    [self startBlockchain:error];
 }
 
-- (void)start
+- (void)initialize:(NSError **)error
 {
     [[NSFileManager defaultManager] createDirectoryAtURL:_dataURL withIntermediateDirectories:YES attributes:0 error:NULL];
 
@@ -336,68 +641,34 @@ static HIBitcoinManager *_defaultManager = nil;
         }
     }
     
-    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
-    
-    // Find testing network method in the class
-    jmethodID testingM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "setTestingNetwork", "(Z)V");
-    
-    if (testingM == NULL)
-        return;
-    
-    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, testingM, _testingNetwork);
-    if ((*_jniEnv)->ExceptionCheck(_jniEnv))
-    {
-        (*_jniEnv)->ExceptionDescribe(_jniEnv);
-        (*_jniEnv)->ExceptionClear(_jniEnv);
-    }
-  
+    [self callVoidMethodWithName:"setTestingNetwork" error:NULL signature:"(Z)V", _testingNetwork];
     
     // Now set the folder
-    jmethodID setDataDirM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "setDataDirectory", "(Ljava/lang/String;)V");
-    if (setDataDirM == NULL)
-        return;
-
-    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, setDataDirM, (*_jniEnv)->NewStringUTF(_jniEnv, _dataURL.path.UTF8String));
-    if ((*_jniEnv)->ExceptionCheck(_jniEnv))
-    {
-        (*_jniEnv)->ExceptionDescribe(_jniEnv);
-        (*_jniEnv)->ExceptionClear(_jniEnv);
-    }
+    [self callVoidMethodWithName:"setDataDirectory" error:NULL signature:"(Ljava/lang/String;)V",
+     JStringFromNSString(_jniEnv, self.dataURL.path)];
     
     // Now set the app name
-    jmethodID setAppNameM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "setAppName", "(Ljava/lang/String;)V");
-    if (setAppNameM == NULL)
-        return;
-    
-    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, setAppNameM, (*_jniEnv)->NewStringUTF(_jniEnv, _appName.UTF8String));
-    if ((*_jniEnv)->ExceptionCheck(_jniEnv))
-    {
-        (*_jniEnv)->ExceptionDescribe(_jniEnv);
-        (*_jniEnv)->ExceptionClear(_jniEnv);
-    }
-
-    
-    // We're ready! Let's start
-    jmethodID startM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "start", "()V");
-    
-    if (startM == NULL)
-        return;
-
-    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, startM);
-    if ((*_jniEnv)->ExceptionCheck(_jniEnv))
-    {
-        (*_jniEnv)->ExceptionDescribe(_jniEnv);
-        (*_jniEnv)->ExceptionClear(_jniEnv);
-    }
-    [self willChangeValueForKey:@"isRunning"];
-    _isRunning = YES;
-    [self didChangeValueForKey:@"isRunning"];
-    
-    [[NSNotificationCenter defaultCenter] postNotificationName:kHIBitcoinManagerStartedNotification object:self];
-    [self willChangeValueForKey:@"walletAddress"];
-    [self didChangeValueForKey:@"walletAddress"];
+    [self callVoidMethodWithName:"setAppName" error:NULL signature:"(Ljava/lang/String;)V",
+     JStringFromNSString(_jniEnv, _appName)];
 }
 
+- (void)loadWallet:(NSError **)error
+{
+    // We're ready! Let's start
+    [self callVoidMethodWithName:"loadWallet" error:error signature:"()V"];
+}
+    
+- (void)startBlockchain:(NSError **)error
+{
+    // We're ready! Let's start
+    [self callVoidMethodWithName:"startBlockchain" error:error signature:"()V"];
+    
+    if (!error || !*error)
+    {
+        [self didStart];
+    }
+}
+    
 - (void)stop
 {
     [_balanceChecker invalidate];
@@ -446,6 +717,18 @@ static HIBitcoinManager *_defaultManager = nil;
     }
     
     return nil;
+}
+
+- (void)didStart
+{
+    [self willChangeValueForKey:@"isRunning"];
+    _isRunning = YES;
+    [self didChangeValueForKey:@"isRunning"];
+    
+    [[NSNotificationCenter defaultCenter] postNotificationName:kHIBitcoinManagerStartedNotification object:self];
+    
+    [self willChangeValueForKey:@"walletAddress"];
+    [self didChangeValueForKey:@"walletAddress"];
 }
 
 - (NSArray *)allWalletAddresses
@@ -561,18 +844,29 @@ static HIBitcoinManager *_defaultManager = nil;
     return valid;
 }
 
-- (BOOL)encryptWalletWith:(NSString *)passphrase
+- (void)changeWalletPassword:(NSData *)fromPassword
+                  toPassword:(NSData *)toPassword
+                       error:(NSError **)error
 {
-    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
-    // We're ready! Let's start
-    jmethodID encMethode = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "encryptWallet", "(Ljava/lang/String;)V");
+    jarray fromCharArray = fromPassword ? JCharArrayFromNSData(_jniEnv, fromPassword) : NULL;
+    jarray toCharArray = JCharArrayFromNSData(_jniEnv, toPassword);
     
-    if (encMethode == NULL)
-        return NO;
+    [self callVoidMethodWithName:"changeWalletPassword"
+                           error:error
+                       signature:"([C[C)V", fromCharArray, toCharArray];
     
-    (*_jniEnv)->CallVoidMethod(_jniEnv, _managerObject, encMethode, (*_jniEnv)->NewStringUTF(_jniEnv, passphrase.UTF8String));
+    if (fromCharArray)
+    {
+        [self zeroCharArray:fromCharArray size:(jsize)(fromPassword.length / sizeof(jchar))];
+    }
     
-    return YES;
+    [self zeroCharArray:toCharArray size:(jsize)(toPassword.length / sizeof(jchar))];
+}
+
+- (void)zeroCharArray:(jarray)charArray size:(jsize)size {
+    jchar zero[size];
+    memset(zero, 0, size * sizeof(jchar));
+    (*_jniEnv)->SetCharArrayRegion(_jniEnv, charArray, 0, size, zero);
 }
 
 - (BOOL)removeEncryption:(NSString *)passphrase
@@ -1022,8 +1316,6 @@ static HIBitcoinManager *_defaultManager = nil;
         //[self didChangeValueForKey:@"walletstate"];
     });
 }
-    
-    
 
 - (void)onTransactionSucceeded:(NSString *)txid
 {
@@ -1053,29 +1345,107 @@ static HIBitcoinManager *_defaultManager = nil;
 }
 
 #pragma mark helpers
-- (NSString *)formatNanobtc:(NSInteger)nanoBtc
-{
-    //TODO: nice and configurable
-    double btcVal = nanoBtc/100000000.0;
-    NSMutableString *string = [[[NSNumber numberWithDouble:btcVal] stringValue] mutableCopy];
-//    int nullLength = 0;
-//    for(int i = string.length; i > 0; i--)
-//    {
-//        unichar aChar = [string characterAtIndex:i-1];
-//        
-//        if(aChar == '0')
-//        {
-//            nullLength++;
-//        }
-//        else
-//        {
-//            break;
-//        }
-//    }
-//    [string deleteCharactersInRange:NSMakeRange(string.length - nullLength, nullLength)];
 
-    [string appendString:@" ฿"];
-    return string;
+
+- (NSString *)decimalSeparator {
+    return [self createNumberFormatterWithFormat:@"BTC"].decimalSeparator;
+}
+
+- (NSString *)preferredFormat {
+    NSString *currency = [[NSUserDefaults standardUserDefaults] stringForKey:kBitcoinKitFormatPreferenceKey];
+    return [self.availableFormats containsObject:currency] ? currency : @"mBTC";
+}
+
+- (void)setPreferredFormat:(NSString *)preferredFormat {
+    NSString *oldValue = self.preferredFormat;
+    if (![oldValue isEqualToString:preferredFormat]) {
+        [[NSUserDefaults standardUserDefaults] setObject:preferredFormat
+                                                  forKey:kBitcoinKitFormatPreferenceKey];
+        [[NSNotificationCenter defaultCenter] postNotificationName:kBitcoinKitFormatChangeNotification
+                                                            object:self
+                                                          userInfo:nil];
+    }
+}
+
+- (NSString *)stringWithDesignatorForBitcoin:(nanobtc_t)nanoBtcValue {
+    return [NSString stringWithFormat:@"%@ %@", [self stringForBitcoin:nanoBtcValue], self.preferredFormat];
+}
+
+- (NSString *)stringForBitcoin:(nanobtc_t)nanoBtcValue {
+    return [self stringForBitcoin:nanoBtcValue withFormat:self.preferredFormat];
+}
+
+- (NSString *)stringForBitcoin:(nanobtc_t)nanoBtcValue withFormat:(NSString *)format {
+    bool isNeg = NO;
+    if(nanoBtcValue < 0)
+    {
+        isNeg = YES;
+        nanoBtcValue = -nanoBtcValue;
+    }
+    NSNumberFormatter *formatter = [self createNumberFormatterWithFormat:format];
+    NSDecimalNumber *number = [NSDecimalNumber decimalNumberWithMantissa:nanoBtcValue
+                                      exponent:-8
+                                    isNegative:isNeg];
+    number = [number decimalNumberByMultiplyingByPowerOf10:[self shiftForFormat:format]];
+    
+    return [formatter stringFromNumber:number];
+}
+
+- (NSNumberFormatter *)createNumberFormatterWithFormat:(NSString *)format {
+    // Do not use the formatter's multiplier! It causes rounding errors!
+    NSNumberFormatter *formatter = [NSNumberFormatter new];
+    formatter.locale = _locale;
+    formatter.generatesDecimalNumbers = YES;
+    formatter.minimum = @0;
+    formatter.numberStyle = NSNumberFormatterDecimalStyle;
+    formatter.minimumIntegerDigits = 1;
+    if ([format isEqualToString:@"BTC"]) {
+        formatter.minimumFractionDigits = 2;
+        formatter.maximumFractionDigits = 8;
+    } else if ([format isEqualToString:@"mBTC"]) {
+        formatter.minimumFractionDigits = 0;
+        formatter.maximumFractionDigits = 5;
+    } else if ([format isEqualToString:@"µBTC"]) {
+        formatter.minimumFractionDigits = 0;
+        formatter.maximumFractionDigits = 2;
+    } else if ([format isEqualToString:@"satoshi"]) {
+        formatter.minimumFractionDigits = 0;
+        formatter.maximumFractionDigits = 0;
+    } else {
+        @throw [self createUnknownFormatException:format];
+    }
+    return formatter;
+}
+
+- (NSException *)createUnknownFormatException:(NSString *)format {
+    return [NSException exceptionWithName:@"UnknownBitcoinFormatException"
+                                   reason:[NSString stringWithFormat:@"Unknown Bitcoin format %@", format]
+                                 userInfo:nil];
+}
+
+- (int)shiftForFormat:(NSString *)format {
+    if ([format isEqualToString:@"BTC"]) {
+        return 0;
+    } else if ([format isEqualToString:@"mBTC"]) {
+        return 3;
+    } else if ([format isEqualToString:@"µBTC"]) {
+        return 6;
+    } else if ([format isEqualToString:@"satoshi"]) {
+        return 8;
+    } else {
+        @throw [self createUnknownFormatException:format];
+    }
+}
+
+
+- (NSString *)formatNanobtc:(nanobtc_t)nanoBtcValue
+{
+    return [self stringForBitcoin:nanoBtcValue];
+}
+
+- (NSString *)formatNanobtc:(nanobtc_t)nanoBtcValue withDesignator:(BOOL)designator
+{
+    return [self stringWithDesignatorForBitcoin:nanoBtcValue];
 }
 
 @end

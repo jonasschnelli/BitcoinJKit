@@ -3,6 +3,7 @@ package com.hive.bitcoinkit;
 import static com.google.bitcoin.core.Utils.bytesToHexString;
 
 import com.google.bitcoin.core.*;
+import com.google.bitcoin.crypto.KeyCrypter;
 import com.google.bitcoin.crypto.KeyCrypterException;
 import com.google.bitcoin.crypto.KeyCrypterScrypt;
 import com.google.bitcoin.net.discovery.DnsDiscovery;
@@ -33,10 +34,16 @@ import java.nio.charset.Charset;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.HashSet;
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.TimeZone;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.impl.CocoaLogger;
+import java.nio.CharBuffer;
 
 public class BitcoinManager implements PeerEventListener, Thread.UncaughtExceptionHandler, TransactionConfidence.Listener {
 	private NetworkParameters networkParams;
@@ -72,6 +79,17 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
         onException(exception);
     }
     
+    public String getExceptionStackTrace(Throwable exception)
+    {
+        StringBuilder buffer = new StringBuilder();
+        
+        for (StackTraceElement line : exception.getStackTrace())
+        {
+            buffer.append("at " + line.toString() + "\n");
+        }
+        
+        return buffer.toString();
+    }
     
 	public void setTestingNetwork(boolean testing)
 	{
@@ -461,20 +479,80 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
     /**
      * encrypt your wallet
      */
-    public void encryptWallet(String passphrase)
+    private void encryptWallet(char[] utf16Password, Wallet wallet)
     {
-        if(wallet != null)
+        KeyCrypterScrypt keyCrypter = new KeyCrypterScrypt();
+        KeyParameter aesKey = deriveKeyAndWipePassword(utf16Password, keyCrypter);
+        try
         {
-            try
-            {
-                wallet.encrypt(passphrase);
-                wallet.saveToFile(walletFile);
-            }
-            catch (Exception e)
-            {
-                // TODO: error case
-            }
+            wallet.encrypt(keyCrypter, aesKey);
         }
+        finally
+        {
+            wipeAesKey(aesKey);
+        }
+    }
+    
+    private KeyParameter aesKeyForPassword(char[] utf16Password) throws WrongPasswordException
+    {
+        KeyCrypter keyCrypter = wallet.getKeyCrypter();
+        if (keyCrypter == null)
+        {
+            throw new WrongPasswordException("Wallet is not protected.");
+        }
+        return deriveKeyAndWipePassword(utf16Password, keyCrypter);
+    }
+    
+    private KeyParameter deriveKeyAndWipePassword(char[] utf16Password, KeyCrypter keyCrypter)
+    {
+        try
+        {
+            return keyCrypter.deriveKey(CharBuffer.wrap(utf16Password));
+        }
+        finally
+        {
+            Arrays.fill(utf16Password, '\0');
+        }
+    }
+    
+    private void wipeAesKey(KeyParameter aesKey)
+    {
+        if (aesKey != null)
+        {
+            Arrays.fill(aesKey.getKey(), (byte) 0);
+        }
+    }
+    
+    /**
+     * decrypt your wallet
+     */
+    private void decryptWallet(char[] oldUtf16Password) throws WrongPasswordException
+    {
+        KeyParameter oldAesKey = aesKeyForPassword(oldUtf16Password);
+        try
+        {
+            wallet.decrypt(oldAesKey);
+        }
+        catch (KeyCrypterException e)
+        {
+            throw new WrongPasswordException(e);
+        }
+        finally
+        {
+            wipeAesKey(oldAesKey);
+        }
+    }
+    
+    public void changeWalletPassword(char[] oldUtf16Password, char[] newUtf16Password) throws WrongPasswordException
+    {
+        updateLastWalletChange(wallet);
+        
+        if (isWalletEncrypted())
+        {
+            decryptWallet(oldUtf16Password);
+        }
+        
+        encryptWallet(newUtf16Password, wallet);
     }
     
     /**
@@ -511,36 +589,6 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
             return null;
         }
     }
-    /**
-     * decrypt your wallet
-     */
-    public boolean decryptWallet(String passphrase)
-    {
-        if(wallet != null)
-        {
-            try
-            {
-                // if there is a passphrase set, try to encrypt
-                if(passphrase != null && wallet != null && wallet.isEncrypted())
-                {
-                    System.err.println("\n\n+++ descript: try to set password\n\n");
-                    // set the AES key if the password was set
-                    org.spongycastle.crypto.params.KeyParameter keyParams = wallet.getKeyCrypter().deriveKey(passphrase);
-                    
-                    wallet.decrypt(keyParams);
-                    wallet.saveToFile(walletFile);
-                }
-                
-                
-            }
-            catch (Exception e)
-            {
-                return false;
-            }
-        }
-        
-        return true;
-    }
     
     /**
      * save your wallet
@@ -560,110 +608,39 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
         }
     }
     
-    /**
-     * start the bitcoinj app layer
-     */
-	public void start() throws Exception
-	{
-        storedChainHeight = 0;
-        
-        File chainFile = new File(dataDirectory + "/" + appName + ".spvchain");
-
-        // Try to read the wallet from storage, create a new one if not possible.
-        wallet = null;
-        
-     
-        walletFile = new File(dataDirectory + "/"+ appName +".wallet");
-        System.err.println("+++ using wallet file ("+dataDirectory + "/"+ appName +".wallet)");
-        
-        try {
-            if (walletFile.exists())
-            {
-                wallet = Wallet.loadFromFile(walletFile);
-                if(!chainFile.exists())
-                {
-                    wallet.clearTransactions(0);
-                }
-                wallet.autosaveToFile(walletFile, 1, TimeUnit.SECONDS, null);
-                
-                // dump keys
-                
-                
-                
-            }
-        } catch (UnreadableWalletException e) {
-            // TODO: error case
-        }
-        
-        if (wallet == null) {
-            // if there is no wallet, create one and add a ec key
-            wallet = new Wallet(networkParams);
-
-            wallet.addKey(new ECKey());
-            wallet.saveToFile(walletFile);
-            //set wallet to autosave
-            wallet.autosaveToFile(walletFile, 1, TimeUnit.SECONDS, null);
-        }
-
-        // get the oldest key (for the checkpoint file)
-        long oldestKey = 0;
-        for(ECKey key: wallet.getKeys())
+    public void createWallet(char[] utf16Password) throws IOException, BlockStoreException, ExistingWalletException
+    {
+        if (walletFile == null)
         {
-            long keyAge = key.getCreationTimeSeconds();
-            if(oldestKey == 0 || keyAge < oldestKey)
-            {
-                oldestKey = keyAge;
-            }
+            walletFile = new File(dataDirectory + "/"+ appName +".wallet");
+        }
+        else if (walletFile.exists())
+        {
+            throw new ExistingWalletException("Trying to create a wallet even though one exists: " + walletFile);
         }
         
-        String oldestKeyString = String.valueOf(oldestKey);
-        System.err.println("+++oldest key: "+oldestKeyString);
+        wallet = new Wallet(networkParams);
+        wallet.addExtension(new LastWalletChangeExtension());
+        updateLastWalletChange(wallet);
+        wallet.addKey(new ECKey());
         
-        // Load the block chain, if there is one stored locally. If it's going to be freshly created, checkpoint it.
-        boolean chainExistedAlready = chainFile.exists();
-        blockStore = new SPVBlockStore(networkParams, chainFile);
-        if (!chainExistedAlready && oldestKey > 0) {
-            File checkpointsFile = new File(dataDirectory + "/" + appName + ".checkpoints");
-            if (checkpointsFile.exists()) {
-                System.err.println("+++using the checkpoint file");
-                FileInputStream stream = new FileInputStream(checkpointsFile);
-                try {
-                    CheckpointManager.checkpoint(networkParams, stream, blockStore, oldestKey);
-                }
-                catch (Exception e) {
-                }
-            }
+        if (utf16Password != null)
+        {
+            encryptWallet(utf16Password, wallet);
         }
-     
-        chain = new BlockChain(networkParams, wallet, blockStore);
-        // Connect to the localhost node. One minute timeout since we won't try any other peers
-
-        peerGroup = new PeerGroup(networkParams, chain);
-        if (networkParams == RegTestParams.get()) {
-            peerGroup.addAddress(InetAddress.getLocalHost());
-        } else {
-            peerGroup.addPeerDiscovery(new DnsDiscovery(networkParams));
-        }
-        peerGroup.addEventListener(new AbstractPeerEventListener() {
-            @Override
-            public void onPeerConnected(Peer peer, int peerCount) {
-                super.onPeerConnected(peer, peerCount);
-                onPeerCountChanged(peerCount);
-                
-                // inform app about the expected height
-                onSynchronizationUpdate(-1, -1, peerGroup.getMostCommonChainHeight());
-            }
-            
-            @Override
-            public void onPeerDisconnected(Peer peer, int peerCount) {
-                super.onPeerDisconnected(peer, peerCount);
-                onPeerCountChanged(peerCount);
-            }
-        });
-            
-        peerGroup.addWallet(wallet);
         
-
+        wallet.saveToFile(walletFile);
+        
+        useWallet(wallet);
+    }
+    
+    private void useWallet(Wallet wallet) throws IOException
+    {
+        this.wallet = wallet;
+        
+        //make wallet autosave
+        wallet.autosaveToFile(walletFile, 1, TimeUnit.SECONDS, null);
+        
         // We want to know when the balance changes.
         wallet.addEventListener(new AbstractWalletEventListener() {
             @Override
@@ -688,6 +665,147 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
             }
             
         });
+    }
+    
+    
+    /* --- Keeping last wallet change date --- */
+    
+    public void updateLastWalletChange(Wallet wallet)
+    {
+        LastWalletChangeExtension ext =
+        (LastWalletChangeExtension) wallet.getExtensions().get(LastWalletChangeExtension.EXTENSION_ID);
+        
+        ext.setLastWalletChangeDate(new Date());
+    }
+    
+    public Date getLastWalletChange()
+    {
+        if (wallet == null)
+        {
+            return null;
+        }
+        
+        LastWalletChangeExtension ext =
+        (LastWalletChangeExtension) wallet.getExtensions().get(LastWalletChangeExtension.EXTENSION_ID);
+        
+        return ext.getLastWalletChangeDate();
+    }
+    
+    public long getLastWalletChangeTimestamp()
+    {
+        Date date = getLastWalletChange();
+        return (date != null) ? date.getTime() : 0;
+    }
+    
+    
+    /**
+     * start the bitcoinj app layer
+     */
+	public void loadWallet() throws NoWalletException,UnreadableWalletException, IOException
+	{
+        if(wallet == null)
+        {
+            // if no wallet is loaded, try to load the default wallet
+            try {
+                if (walletFile == null)
+                {
+                    walletFile = new File(dataDirectory + "/"+ appName +".wallet");
+                }
+                if (walletFile.exists())
+                {
+                    wallet = Wallet.loadFromFile(walletFile);
+                    useWallet(wallet);
+                }
+                else {
+                    throw new NoWalletException("No wallet file found at: " + walletFile);
+                }
+            } catch (UnreadableWalletException e) {
+                throw e;
+            }
+        }
+    }
+    
+    /**
+     * start the bitcoinj app layer
+     */
+	public void startBlockchain() throws BlockStoreException, NoWalletException,UnreadableWalletException, IOException
+	{
+        
+        File chainFile = new File(dataDirectory + "/" + appName + ".spvchain");
+        storedChainHeight = 0;
+        
+        loadWallet();
+        
+        if(!chainFile.exists())
+        {
+            wallet.clearTransactions(0);
+        }
+
+        // get the oldest key (for the checkpoint file)
+        long oldestKey = 0;
+        for(ECKey key: wallet.getKeys())
+        {
+            long keyAge = key.getCreationTimeSeconds();
+            if(oldestKey == 0 || keyAge < oldestKey)
+            {
+                oldestKey = keyAge;
+            }
+        }
+        
+        String oldestKeyString = String.valueOf(oldestKey);
+        System.err.println("+++oldest key: "+oldestKeyString);
+        
+        // Load the block chain, if there is one stored locally. If it's going to be freshly created, checkpoint it.
+        boolean chainExistedAlready = chainFile.exists();
+        blockStore = new SPVBlockStore(networkParams, chainFile);
+        if (!chainExistedAlready && oldestKey > 0) {
+            File checkpointsFile = new File(dataDirectory + "/" + appName + ".checkpoints");
+            if (checkpointsFile.exists()) {
+                System.err.println("+++using the checkpoint file");
+                try {
+                    FileInputStream stream = new FileInputStream(checkpointsFile);
+                    CheckpointManager.checkpoint(networkParams, stream, blockStore, oldestKey);
+                }
+                catch (Exception e) {
+                    // TODO
+                }
+            }
+        }
+     
+        chain = new BlockChain(networkParams, wallet, blockStore);
+        // Connect to the localhost node. One minute timeout since we won't try any other peers
+
+        
+        peerGroup = new PeerGroup(networkParams, chain);
+        
+        try {
+            if (networkParams == RegTestParams.get()) {
+                peerGroup.addAddress(InetAddress.getLocalHost());
+            } else {
+                peerGroup.addPeerDiscovery(new DnsDiscovery(networkParams));
+            }
+        }
+        catch (Exception e) {
+            // TODO
+        }
+        peerGroup.addEventListener(new AbstractPeerEventListener() {
+            @Override
+            public void onPeerConnected(Peer peer, int peerCount) {
+                super.onPeerConnected(peer, peerCount);
+                onPeerCountChanged(peerCount);
+                
+                // inform app about the expected height
+                onSynchronizationUpdate(-1, -1, peerGroup.getMostCommonChainHeight());
+            }
+            
+            @Override
+            public void onPeerDisconnected(Peer peer, int peerCount) {
+                super.onPeerDisconnected(peer, peerCount);
+                onPeerCountChanged(peerCount);
+            }
+        });
+            
+        peerGroup.addWallet(wallet);
         
         
         // inform the app over the current chains height; if there is a chain and already loaded blocks
@@ -707,7 +825,6 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
         onBalanceChanged();
 
         peerGroup.startBlockChainDownload(this);
-
 	}
 	
     /**
@@ -767,17 +884,31 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
             // report after every 100 block
             if(blocksLeft % 100 == 0)
             {
+                long currentChainHeight = -1; // -1 = no change (by default)
+                StoredBlock chainHead = chain.getChainHead();
+                if(chainHead != null)
+                {
+                    currentChainHeight = chainHead.getHeight();
+                }
+                
                 double progress = (double)downloadedSoFar / (double)blocksToDownload;
-                onSynchronizationUpdate(progress, storedChainHeight+downloadedSoFar, -1);
+                onSynchronizationUpdate(progress, currentChainHeight, -1);
             }
         }
 	}
 	
 	public void onChainDownloadStarted(Peer peer, int blocksLeft)
 	{
+        long currentChainHeight = -1; // -1 = no change (by default)
+        StoredBlock chainHead = chain.getChainHead();
+        if(chainHead != null)
+        {
+            currentChainHeight = chainHead.getHeight();
+        }
+        
 		blocksToDownload = blocksLeft;
 		if (blocksToDownload == 0)
-			onSynchronizationUpdate(1.0, storedChainHeight+blocksToDownload, -1);
+			onSynchronizationUpdate(1.0, currentChainHeight, -1);
 		else
 			onSynchronizationUpdate(0.0, -1, -1);
 	}
