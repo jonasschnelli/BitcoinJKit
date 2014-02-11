@@ -318,6 +318,10 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
 
     public void clearSendRequest()
     {
+        if(pendingSendRequest != null && pendingSendRequest.aesKey != null)
+        {
+            wipeAesKey(pendingSendRequest.aesKey);
+        }
         pendingSendRequest = null;
     }
     
@@ -343,11 +347,12 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
             Futures.addCallback(future, new FutureCallback<Transaction>() {
                 public void onSuccess(Transaction transaction) {
                     onTransactionSuccess(pendingSendRequest.tx.getHashAsString());
+                    wipeAesKey(pendingSendRequest.aesKey);
                 }
                 
                 public void onFailure(Throwable throwable) {
                     onTransactionFailed();
-                    throwable.printStackTrace();
+                    wipeAesKey(pendingSendRequest.aesKey);
                 }
             });
             
@@ -362,51 +367,49 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
     /**
      * creates and stores a sendRequest and return the required fee
      */
-	public String createSendRequest(String amount, final String sendToAddressString, String passphrase)
+    public String createSendRequest(String amount, final String sendToAddressString) throws AddressFormatException, WrongPasswordException, InsufficientMoneyException
 	{
+        return createSendRequest(amount, sendToAddressString, null);
+    }
+	public String createSendRequest(String amount, final String sendToAddressString, char[] utf16Password) throws AddressFormatException, WrongPasswordException, InsufficientMoneyException
+	{
+        
+        log.debug("creating send request " + amount);
+        
         clearSendRequest();
         
+        KeyParameter aesKey = null;
         try {
             BigInteger value = new BigInteger(amount);
             Address sendToAddress = new Address(networkParams, sendToAddressString);
 
             pendingSendRequest = Wallet.SendRequest.to(sendToAddress, value);
             
-            // if there is a passphrase set, try to encrypt
-            if(passphrase != null && wallet != null && wallet.isEncrypted())
+            if (utf16Password != null && wallet != null && wallet.isEncrypted())
             {
-                
-                // set the AES key if the password was set
-                org.spongycastle.crypto.params.KeyParameter keyParams = wallet.getKeyCrypter().deriveKey(passphrase);
-                if(keyParams == null)
-                {
-                    System.err.println("\n\n+++ keyparams is null\n\n");
-                }
-                pendingSendRequest.aesKey = keyParams;
+                aesKey = aesKeyForPassword(utf16Password);
+                pendingSendRequest.aesKey = aesKey;
             }
+
             wallet.completeTx(pendingSendRequest);
             return pendingSendRequest.fee.toString();
             
-        } catch (KeyCrypterException e) {
-            e.printStackTrace();
-            
-            for (StackTraceElement ste : Thread.currentThread().getStackTrace()) {
-                System.err.println(ste);
-            }
-            
-            return "-1"; // = crypter error
         }
         catch (InsufficientMoneyException e)
         {
-            e.printStackTrace();
-            return "-100"; // = unknown error
+            throw e;
+        }
+        catch (KeyCrypterException e)
+        {
+            wipeAesKey(aesKey);
+            throw new WrongPasswordException(e);
         }
         catch (Exception e)
         {
-            e.printStackTrace();
-           return "-100"; // = unknown error
+            wipeAesKey(aesKey);
+            onTransactionFailed();
         }
-        
+        return null;
 	}
     
     public boolean isAddressValid(String address)
@@ -714,6 +717,7 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
                 if (walletFile.exists())
                 {
                     wallet = Wallet.loadFromFile(walletFile);
+                    wallet.addExtension(new LastWalletChangeExtension());
                     useWallet(wallet);
                 }
                 else {

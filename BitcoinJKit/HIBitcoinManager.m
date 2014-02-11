@@ -400,6 +400,10 @@ static HIBitcoinManager *_defaultManager = nil;
 - (NSInteger)errorCodeForJavaException:(jthrowable)exception
 {
     NSString *exceptionClass = [self getJavaExceptionClassName:exception];
+    if ([exceptionClass isEqual:@"com.google.bitcoin.core.InsufficientMoneyException"])
+    {
+        return kHIBitcoinManagerInsufficientMoney;
+    }
     if ([exceptionClass isEqual:@"com.google.bitcoin.store.UnreadableWalletException"])
     {
         return kHIBitcoinManagerUnreadableWallet;
@@ -869,18 +873,14 @@ static HIBitcoinManager *_defaultManager = nil;
     (*_jniEnv)->SetCharArrayRegion(_jniEnv, charArray, 0, size, zero);
 }
 
-- (BOOL)removeEncryption:(NSString *)passphrase
+- (void)removeEncryption:(NSData *)password error:(NSError **)error
 {
-    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
-    // We're ready! Let's start
-    jmethodID encMethode = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "decryptWallet", "(Ljava/lang/String;)Z");
     
-    if (encMethode == NULL)
-        return NO;
-    
-    jboolean success = (*_jniEnv)->CallBooleanMethod(_jniEnv, _managerObject, encMethode, (*_jniEnv)->NewStringUTF(_jniEnv, passphrase.UTF8String));
-    
-    return success;
+    jarray toCharArray = JCharArrayFromNSData(_jniEnv, password);
+    [self callVoidMethodWithName:"decryptWallet"
+                           error:error
+                       signature:"([C)V", toCharArray];
+
 }
 
 - (BOOL)changeWalletEncryptionKeyFrom:(NSString *)oldpasswd to:(NSString *)newpasswd
@@ -1135,81 +1135,53 @@ static HIBitcoinManager *_defaultManager = nil;
     return valid;
 }
 
-- (NSString *)commitPreparedTransaction
+- (NSString *)commitPreparedTransaction:(NSError **)error
 {
-    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
-    // We're ready! Let's start
-    jmethodID commitTXM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "commitSendRequest", "()Ljava/lang/String;");
-    
-    if (commitTXM == NULL)
+    jstring txHashString = [self callObjectMethodWithName:"commitSendRequest" error:error signature:"()Ljava/lang/String;"];
+    if(txHashString)
     {
+        return NSStringFromJString(_jniEnv, txHashString);
+    }
+    else {
         return nil;
     }
-    
-    jstring txHashString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, commitTXM);
-    
-    if (txHashString)
-    {
-        const char *tsHashChars = (*_jniEnv)->GetStringUTFChars(_jniEnv, txHashString, NULL);
-        
-        NSString *txHashNSString = [NSString stringWithUTF8String:tsHashChars];
-        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, txHashString, tsHashChars);
-        return txHashNSString;
-    }
-    
-    return nil;
 }
-- (NSInteger)prepareSendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment password:(NSString *)password
+
+- (void)clearSendRequest:(NSError **)error
 {
+    [self callVoidMethodWithName:"clearSendRequest" error:error signature:"()V"];
+}
+
+- (void)prepareSendCoins:(nanobtc_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment password:(NSData *)passwordData returnFee:(nanobtc_t *)feeRetVal error:(NSError **)error
+{
+    jstring receipentJString = JStringFromNSString(_jniEnv, receipent);
+    jstring feeJString = nil;
+    jstring jAmount = JStringFromNSString(_jniEnv, [NSString stringWithFormat:@"%lld", coins]);
     
-    jstring passwordJString = NULL;
-    if(password)
+    if(passwordData)
     {
-        passwordJString = (*_jniEnv)->NewStringUTF(_jniEnv, password.UTF8String);
+            jarray charArray = JCharArrayFromNSData(_jniEnv, passwordData);
+            feeJString = [self callObjectMethodWithName:"createSendRequest" error:error signature:"(Ljava/lang/String;Ljava/lang/String;[C)Ljava/lang/String;", jAmount, receipentJString, charArray];
     }
-    
-    jclass mgrClass = [self jClassForClass:@"com/hive/bitcoinkit/BitcoinManager"];
-    // We're ready! Let's start
-    jmethodID sendM = (*_jniEnv)->GetMethodID(_jniEnv, mgrClass, "createSendRequest", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
-    
-    if (sendM == NULL)
+    else
     {
-        return kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN;
+        feeJString = [self callObjectMethodWithName:"createSendRequest" error:error signature:"(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", jAmount, receipentJString];
     }
+
     
-    jstring feeString = (*_jniEnv)->CallObjectMethod(_jniEnv, _managerObject, sendM, (*_jniEnv)->NewStringUTF(_jniEnv, [[NSString stringWithFormat:@"%lld", coins] UTF8String]),
-                                                     (*_jniEnv)->NewStringUTF(_jniEnv, receipent.UTF8String),
-                                                     passwordJString);
-    
-    if (feeString)
+    if (feeJString)
     {
-        const char *feeChars = (*_jniEnv)->GetStringUTFChars(_jniEnv, feeString, NULL);
+        NSString *feeNSString = NSStringFromJString(_jniEnv, feeJString);
         
-        NSString *fStr = [NSString stringWithUTF8String:feeChars];
-        (*_jniEnv)->ReleaseStringUTFChars(_jniEnv, feeString, feeChars);
- 
- 
-        if([fStr isEqualToString:@""])
-        {
-            return kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN;
-        }
-        else if([fStr isEqualToString:[NSString stringWithFormat:@"%d", kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN]])
-        {
-            return kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN;
-        }
-        else if([fStr isEqualToString:[NSString stringWithFormat:@"%d", kHI_PREPARE_SEND_COINS_DID_FAIL_ENC]])
-        {
-            return kHI_PREPARE_SEND_COINS_DID_FAIL_ENC;
-        }
-        else if([fStr isEqualToString:[NSString stringWithFormat:@"%d", kHI_PREPARE_SEND_COINS_DID_FAIL_NOT_ENOUGHT_FUNDS]])
-        {
-            return kHI_PREPARE_SEND_COINS_DID_FAIL_NOT_ENOUGHT_FUNDS;
-        }
-        
-        return [fStr longLongValue];
+        *feeRetVal = [feeNSString longLongValue];
     }
-    
-    return kHI_PREPARE_SEND_COINS_DID_FAIL_UNKNOWN;
+    else
+    {
+        if(!error)
+        {
+            *error = [NSError errorWithDomain:@"BitcoinKit" code:1001 userInfo:nil];
+        }
+    }
 }
 
 - (NSUInteger)transactionCount
@@ -1353,7 +1325,7 @@ static HIBitcoinManager *_defaultManager = nil;
 
 - (NSString *)preferredFormat {
     NSString *currency = [[NSUserDefaults standardUserDefaults] stringForKey:kBitcoinKitFormatPreferenceKey];
-    return [self.availableFormats containsObject:currency] ? currency : @"mBTC";
+    return [self.availableFormats containsObject:currency] ? currency : @"BTC";
 }
 
 - (void)setPreferredFormat:(NSString *)preferredFormat {
@@ -1446,6 +1418,13 @@ static HIBitcoinManager *_defaultManager = nil;
 - (NSString *)formatNanobtc:(nanobtc_t)nanoBtcValue withDesignator:(BOOL)designator
 {
     return [self stringWithDesignatorForBitcoin:nanoBtcValue];
+}
+
+- (nanobtc_t)nanoBtcFromString:(NSString *)userAmount format:(NSString *)format
+{
+    int shift = 8-[self shiftForFormat:format];
+    NSDecimalNumber *decimal = [NSDecimalNumber decimalNumberWithString:userAmount];
+    return [[decimal decimalNumberByMultiplyingByPowerOf10:shift] longLongValue];
 }
 
 @end

@@ -164,9 +164,10 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  * @returns the fee in nanobtc as a long
  *
  */
-- (NSInteger)prepareSendCoins:(uint64_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment password:(NSString *)password;
+- (void)prepareSendCoins:(nanobtc_t)coins toReceipent:(NSString *)receipent comment:(NSString *)comment password:(NSData *)password returnFee:(nanobtc_t *)feeRetVal error:(NSError **)error;
 
-- (NSString *)commitPreparedTransaction;
+- (NSString *)commitPreparedTransaction:(NSError **)error;
+- (void)clearSendRequest:(NSError **)error;
 
 /** save the wallet to the given wallet store file
  *
@@ -190,7 +191,7 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  *
  * @returns YES if encryption was successful, NO - otherwise
  */
-- (BOOL)removeEncryption:(NSString *)passphrase;
+- (void)removeEncryption:(NSData *)password error:(NSError **)error;
 
 /** Changes the encryption passphrase for the wallet
  *
@@ -236,6 +237,7 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  */
 - (NSString *)formatNanobtc:(nanobtc_t)nanoBtc;
 - (NSString *)formatNanobtc:(nanobtc_t)nanoBtcValue withDesignator:(BOOL)designator;
+- (nanobtc_t)nanoBtcFromString:(NSString *)userAmount format:(NSString *)format;
 
 /** Checks if the wallet is encryped
  *
