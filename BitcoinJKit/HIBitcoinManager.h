@@ -245,5 +245,7 @@ extern NSString * const kHIBitcoinManagerStoppedNotification;                   
  */
 - (BOOL)isWalletEncrypted;
 
+- (NSString *)walletFilename;
+
 @end
  

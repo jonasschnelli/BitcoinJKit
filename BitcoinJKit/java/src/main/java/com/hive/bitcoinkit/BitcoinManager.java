@@ -114,6 +114,11 @@ public class BitcoinManager implements PeerEventListener, Thread.UncaughtExcepti
     {
         return dataDirectory;
     }
+    
+    public String getWalletPath()
+    {
+        return dataDirectory + "/"+ appName +".wallet";
+    }
 
     public void setAppName(String newAppName)
     {

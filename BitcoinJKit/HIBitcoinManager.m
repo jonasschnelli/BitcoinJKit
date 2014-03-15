@@ -1216,6 +1216,19 @@ static HIBitcoinManager *_defaultManager = nil;
     return date;
 }
 
+- (NSString *)walletFilename
+{
+    //TODO, error handling
+    NSError *error = nil;;
+    jstring walletLocation = [self callObjectMethodWithName:"getWalletPath" error:&error signature:"()Ljava/lang/String;"];
+    if (walletLocation)
+    {
+        NSString *walletLocationNSString = NSStringFromJString(_jniEnv, walletLocation);
+        return walletLocationNSString;
+    }
+    return nil;
+}
+
 #pragma mark - Callbacks
 
 - (void)onBalanceChanged
@@ -1325,7 +1338,7 @@ static HIBitcoinManager *_defaultManager = nil;
 
 - (NSString *)preferredFormat {
     NSString *currency = [[NSUserDefaults standardUserDefaults] stringForKey:kBitcoinKitFormatPreferenceKey];
-    return [self.availableFormats containsObject:currency] ? currency : @"BTC";
+    return [self.availableFormats containsObject:currency] ? currency : @"mBTC";
 }
 
 - (void)setPreferredFormat:(NSString *)preferredFormat {
